@@ -1,0 +1,77 @@
+:root {
+  --ink: #1a2332;
+  --ink-muted: #5c6b7a;
+  --paper: #f3efe6;
+  --paper-2: #e8e2d4;
+  --panel: #fbf8f1;
+  --line: #c9bfa8;
+  --accent: #0d9488;
+  --accent-deep: #0f766e;
+  --warn: #c2410c;
+  --ring: #d97706;
+  --win: #15803d;
+  --fail: #b91c1c;
+  --slot: #dde5ea;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(13, 148, 136, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(217, 119, 6, 0.1), transparent 50%),
+    linear-gradient(165deg, var(--paper) 0%, var(--paper-2) 100%);
+  background-attachment: fixed;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}

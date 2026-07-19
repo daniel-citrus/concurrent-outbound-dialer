@@ -5,6 +5,7 @@ import type {
   DialingSession,
   SessionStatusSnapshot,
 } from "./types";
+import { isActiveCall } from "./types";
 
 export type VisualizerState = {
   session: DialingSession | null;
@@ -159,6 +160,56 @@ export function createVisualizerStore() {
     async simulate(callAttemptId: string, status: Parameters<typeof dialerApi.simulate>[1]) {
       await run(async () => {
         await dialerApi.simulate(callAttemptId, status);
+      });
+    },
+    async simulateMany(
+      callAttemptIds: string[],
+      status: Parameters<typeof dialerApi.simulate>[1],
+    ) {
+      const uniqueIds = [...new Set(callAttemptIds)];
+      if (uniqueIds.length === 0) {
+        error = "Select at least one active call.";
+        return;
+      }
+      await run(async () => {
+        const results = await Promise.allSettled(
+          uniqueIds.map((id) => dialerApi.simulate(id, status)),
+        );
+        const failed = results.filter((r) => r.status === "rejected");
+        if (failed.length > 0) {
+          const first = failed[0] as PromiseRejectedResult;
+          const message =
+            first.reason instanceof Error
+              ? first.reason.message
+              : "Simulate partially failed";
+          throw new Error(
+            `${failed.length}/${uniqueIds.length} simulates failed: ${message}`,
+          );
+        }
+      });
+    },
+    async simulateAllActive(status: Parameters<typeof dialerApi.simulate>[1]) {
+      const targets = calls.filter((c) => isActiveCall(c.status) && !c.isWinner);
+      if (targets.length === 0) {
+        error = "No active non-winning calls to simulate.";
+        return;
+      }
+      const uniqueIds = targets.map((c) => c.id);
+      await run(async () => {
+        const results = await Promise.allSettled(
+          uniqueIds.map((id) => dialerApi.simulate(id, status)),
+        );
+        const failed = results.filter((r) => r.status === "rejected");
+        if (failed.length > 0) {
+          const first = failed[0] as PromiseRejectedResult;
+          const message =
+            first.reason instanceof Error
+              ? first.reason.message
+              : "Simulate partially failed";
+          throw new Error(
+            `${failed.length}/${uniqueIds.length} simulates failed: ${message}`,
+          );
+        }
       });
     },
     reset() {

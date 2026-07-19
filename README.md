@@ -159,7 +159,7 @@ Workflow:
 
 1. Create a session with contact list and concurrency limit
 2. Start dialing — watch the concurrency board fill
-3. On each active slot, simulate `ringing` / `in_progress` / terminal outcomes
+3. Select calls with checkboxes and apply status to the selection, use **All active**, or drive each slot individually
 4. `in_progress` triggers winner selection and cancels other legs
 
 ## Migrations

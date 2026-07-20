@@ -8,6 +8,7 @@
   import ContactList from "./components/ContactList.svelte";
   import WinnerPopup from "./components/WinnerPopup.svelte";
   import AutoSimulatePanel from "./components/AutoSimulatePanel.svelte";
+  import AgentSessionView from "./components/AgentSessionView.svelte";
 
   const store = createVisualizerStore();
   let phase = $state<"setup" | "session">("setup");
@@ -91,21 +92,25 @@
       <div class="toolbar">
         <button type="button" class="linkish" onclick={backToSetup}>← New session</button>
       </div>
-      <SessionBar {store} {developerMode} />
-      <WinnerPopup {store} />
       {#if developerMode}
+        <SessionBar {store} {developerMode} />
+        <WinnerPopup {store} />
         <AutoSimulatePanel {store} />
         <SemaphoreBoard {store} />
+        <ConcurrencyBoard {store} {developerMode} />
+        <ContactList {store} {developerMode} />
+      {:else}
+        <SessionBar {store} {developerMode} />
+        <WinnerPopup {store} />
+        <AgentSessionView {store} />
       {/if}
-      <ConcurrencyBoard {store} {developerMode} />
-      <ContactList {store} {developerMode} />
     </div>
   {/if}
 </div>
 
 <style>
   .shell {
-    max-width: 1120px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 1.75rem 1.25rem 3rem;
     display: grid;

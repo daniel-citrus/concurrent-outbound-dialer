@@ -5,11 +5,19 @@
 
   let { store }: { store: VisualizerStore } = $props();
 
-  const winner = $derived(
-    store.snapshot?.winningCall ??
-      store.calls.find((c) => c.isWinner) ??
-      null,
-  );
+  /** Current-round winner only — never fall back to historical isWinner rows. */
+  const winner = $derived.by(() => {
+    const winnerId = store.session?.winningCallAttemptId;
+    if (!winnerId) return null;
+
+    const fromCalls = store.calls.find((call) => call.id === winnerId);
+    if (fromCalls) return fromCalls;
+
+    const fromSnapshot = store.snapshot?.winningCall;
+    if (fromSnapshot?.id === winnerId) return fromSnapshot;
+
+    return null;
+  });
 
   const open = $derived(
     !!winner &&
@@ -42,10 +50,10 @@
       aria-labelledby="winner-popup-title"
     >
       <p class="label">Connected</p>
-      <h2 id="winner-popup-title">{detail?.name ?? "Unknown contact"}</h2>
-      <p class="phone mono">{contact?.phoneNumber ?? "—"}</p>
+      <h2 id="winner-popup-title">{detail?.name || "Unknown contact"}</h2>
+      <p class="phone mono">{contact?.phoneNumber || "—"}</p>
       <p class="meta">
-        {detail?.company ?? "—"}
+        {detail?.company || "—"}
         {#if detail?.title}
           · {detail.title}
         {/if}

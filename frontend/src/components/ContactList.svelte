@@ -2,17 +2,34 @@
   import type { VisualizerStore } from "../lib/store.svelte";
   import { resolveContactCallStatus } from "../lib/call-status-display";
 
-  let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
+  let {
+    store,
+    developerMode = false,
+    compact = false,
+    /** When true, only show contacts still waiting in the queue (conveyor belt). */
+    queuedOnly = false,
+  }: {
+    store: VisualizerStore;
+    developerMode?: boolean;
+    compact?: boolean;
+    queuedOnly?: boolean;
+  } = $props();
 
   const sorted = $derived(
-    [...store.contacts].sort((a, b) => a.position - b.position),
+    [...store.contacts]
+      .filter((contact) => !queuedOnly || contact.status === "queued")
+      .sort((a, b) => a.position - b.position),
   );
+
+  const showCallStatus = $derived(!queuedOnly);
 </script>
 
-<section class="panel">
+<section class="panel" class:compact>
   <header>
     <h2>Contact batch</h2>
-    <p>Durable queue order from PostgreSQL.</p>
+    {#if !compact}
+      <p>Durable queue order from PostgreSQL.</p>
+    {/if}
   </header>
 
   <div class="table-wrap">
@@ -25,25 +42,41 @@
           <th>Name</th>
           <th>Company</th>
           <th>Title</th>
-          <th>Call status</th>
+          {#if showCallStatus}
+            <th>Call status</th>
+          {/if}
         </tr>
       </thead>
       <tbody>
-        {#each sorted as contact (contact.id)}
-          {@const detail = store.getContactDetail(contact.externalContactId)}
-          {@const callStatus = resolveContactCallStatus(contact.id, store.calls)}
+        {#if sorted.length === 0}
           <tr>
-            {#if developerMode}
-              <td class="mono">{contact.position}</td>
-            {/if}
-            <td>
-              <div class="primary-cell">{detail.name}</div>
+            <td colspan={developerMode ? (showCallStatus ? 5 : 4) : showCallStatus ? 4 : 3} class="empty">
+              {#if queuedOnly}
+                No contacts waiting — all have moved to dialing or terminal.
+              {:else}
+                No contacts in this session.
+              {/if}
             </td>
-            <td>{detail.company}</td>
-            <td>{detail.title}</td>
-            <td class="call-status" data-tone={callStatus.tone}>{callStatus.label}</td>
           </tr>
-        {/each}
+        {:else}
+          {#each sorted as contact (contact.id)}
+            {@const detail = store.getContactDetail(contact.externalContactId)}
+            {@const callStatus = resolveContactCallStatus(contact.id, store.calls)}
+            <tr>
+              {#if developerMode}
+                <td class="mono">{contact.position}</td>
+              {/if}
+              <td>
+                <div class="primary-cell">{detail.name}</div>
+              </td>
+              <td>{detail.company}</td>
+              <td>{detail.title}</td>
+              {#if showCallStatus}
+                <td class="call-status" data-tone={callStatus.tone}>{callStatus.label}</td>
+              {/if}
+            </tr>
+          {/each}
+        {/if}
       </tbody>
     </table>
   </div>
@@ -101,5 +134,23 @@
 
   .primary-cell {
     font-weight: 600;
+  }
+
+  .empty {
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+  }
+
+  .panel.compact {
+    height: 100%;
+  }
+
+  .panel.compact .table-wrap {
+    max-height: min(28rem, 60vh);
+  }
+
+  .panel.compact table {
+    min-width: 0;
+    font-size: 0.84rem;
   }
 </style>

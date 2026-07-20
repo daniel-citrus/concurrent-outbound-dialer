@@ -4,7 +4,17 @@
   import { formatStatus, isActiveCall } from "../lib/types";
   import type { VisualizerStore } from "../lib/store.svelte";
 
-  let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
+  let {
+    store,
+    developerMode = false,
+    title = "Concurrency board",
+    compact = false,
+  }: {
+    store: VisualizerStore;
+    developerMode?: boolean;
+    title?: string;
+    compact?: boolean;
+  } = $props();
 
   let selectedIds = $state<string[]>([]);
 
@@ -33,7 +43,9 @@
 
   const slots = $derived.by(() => {
     const filled = activeCalls.slice(0, limit);
-    const empties = Math.max(0, limit - filled.length);
+    // Conveyor / agent view: only show contacts currently dialing.
+    // Developer view: keep empty permit slots visible.
+    const empties = compact ? 0 : Math.max(0, limit - filled.length);
     return { filled, empties };
   });
 
@@ -80,18 +92,7 @@
   }
 </script>
 
-<section class="board">
-  <header>
-    <h2>Concurrency board</h2>
-    <p>
-      {#if developerMode}
-        Select calls with the checkboxes, then apply a status from the simulate panel.
-      {:else}
-        Live concurrency slots for the current dialing session.
-      {/if}
-    </p>
-  </header>
-
+<section class="board" class:compact>
   {#if developerMode && simulatable.length > 0}
     <div class="bulk">
       <div class="bulk-label">
@@ -148,6 +149,19 @@
   {/if}
 
   <div class="panel">
+    <header>
+      <h2>{title}</h2>
+      {#if !compact}
+        <p>
+          {#if developerMode}
+            Select calls with the checkboxes, then apply a status from the simulate panel.
+          {:else}
+            Live dialing slots for the current session.
+          {/if}
+        </p>
+      {/if}
+    </header>
+
     <div class="table-wrap">
       <table>
         <thead>
@@ -209,6 +223,12 @@
               <td colspan="3" class="hint">Waiting for next claim</td>
             </tr>
           {/each}
+
+          {#if compact && slots.filled.length === 0}
+            <tr>
+              <td colspan="4" class="empty-msg">No contacts dialing.</td>
+            </tr>
+          {/if}
         </tbody>
       </table>
     </div>
@@ -219,6 +239,34 @@
   .board {
     display: grid;
     gap: 1rem;
+  }
+
+  .board.compact {
+    gap: 0.75rem;
+  }
+
+  .board.compact .panel {
+    padding: 0.85rem 1rem;
+  }
+
+  .board.compact table {
+    min-width: 0;
+    font-size: 0.84rem;
+  }
+
+  .board.compact .table-wrap {
+    max-height: min(28rem, 60vh);
+  }
+
+  .panel header h2 {
+    font-size: 1.05rem;
+  }
+
+  .panel header p {
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    max-width: none;
   }
 
   header h2 {
@@ -436,6 +484,12 @@
   .hint {
     font-size: 0.8rem;
     color: var(--ink-muted);
+  }
+
+  .empty-msg {
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+    padding: 0.75rem 0.5rem;
   }
 
   @keyframes rise {

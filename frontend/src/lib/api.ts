@@ -10,6 +10,8 @@ import type {
   NebulaProspectListsResponse,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
+  MockAutoSimulateConfig,
+  MockAutoSimulateState,
 } from "./types";
 
 export class ApiError extends Error {
@@ -60,6 +62,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const dialerApi = {
   getHealth(): Promise<{ status: string; voiceProvider?: string; database?: string }> {
     return request("/health");
+  },
+
+  getMockAutoSimulate(): Promise<MockAutoSimulateState> {
+    return request("/mock/auto-simulate");
+  },
+
+  setMockAutoSimulate(
+    patch: { enabled?: boolean; reset?: boolean } & Partial<MockAutoSimulateConfig>,
+  ): Promise<MockAutoSimulateState> {
+    return request("/mock/auto-simulate", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
   },
 
   getNebulaUsers(): Promise<NebulaUsersResponse> {

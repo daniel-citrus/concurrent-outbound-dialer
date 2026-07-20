@@ -40,7 +40,7 @@ export class SessionRepository {
         `INSERT INTO dialing_sessions (client_id, agent_id, status, concurrency_limit, auto_continue)
          VALUES ($1, $2, 'created', $3, $4)
          RETURNING *`,
-        [input.clientId, input.agentId, input.concurrencyLimit, input.autoContinue ?? false],
+        [input.clientId, input.agentId, input.concurrencyLimit, input.autoContinue ?? true],
       );
       const row = result.rows[0];
       if (!row) {

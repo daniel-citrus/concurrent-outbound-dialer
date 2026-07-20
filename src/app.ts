@@ -3,6 +3,8 @@ import pino from "pino";
 import type { Env } from "./config/env.js";
 import { loadEnv } from "./config/env.js";
 import { createPool, type DbPool } from "./database/pool.js";
+import { MockCallAutoSimulator } from "./providers/mock-call-auto-simulator.js";
+import { MOCK_AUTO_SIMULATE_DEFAULTS } from "./providers/mock-call-auto-simulator.js";
 import { MockVoiceProvider } from "./providers/mock-voice-provider.js";
 import type { VoiceProvider } from "./providers/voice-provider.js";
 import { InMemorySessionManager } from "./controllers/session-manager.js";
@@ -15,6 +17,7 @@ import { RecoveryService } from "./services/recovery-service.js";
 import { healthRoutes } from "./routes/health.routes.js";
 import { sessionRoutes } from "./routes/sessions.routes.js";
 import { callRoutes } from "./routes/calls.routes.js";
+import { mockRoutes } from "./routes/mock.routes.js";
 import { nebulaRoutes } from "./routes/nebula.routes.js";
 import type { AppServices } from "./types/app.js";
 import {
@@ -55,6 +58,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   const db = options.db ?? createPool(env.DATABASE_URL);
 
+  const autoSimulator = env.MOCK_AUTO_SIMULATE
+    ? new MockCallAutoSimulator({
+        ...MOCK_AUTO_SIMULATE_DEFAULTS,
+        answerRate: env.MOCK_AUTO_ANSWER_RATE,
+        minStepMs: env.MOCK_AUTO_MIN_STEP_MS,
+        maxStepMs: env.MOCK_AUTO_MAX_STEP_MS,
+        minTalkMs: env.MOCK_AUTO_MIN_TALK_MS,
+        maxTalkMs: env.MOCK_AUTO_MAX_TALK_MS,
+        logger,
+      })
+    : null;
+
   const mockVoiceProvider =
     options.voiceProvider instanceof MockVoiceProvider
       ? options.voiceProvider
@@ -62,8 +77,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
         ? new MockVoiceProvider({
             delayMs: env.MOCK_PROVIDER_DELAY_MS,
             failureRate: env.MOCK_PROVIDER_FAILURE_RATE,
+            autoSimulator,
           })
         : null;
+
+  if (
+    mockVoiceProvider &&
+    autoSimulator &&
+    mockVoiceProvider.getAutoSimulator() !== autoSimulator
+  ) {
+    mockVoiceProvider.configure({ autoSimulator });
+  }
 
   const voiceProvider: VoiceProvider =
     options.voiceProvider ??
@@ -71,6 +95,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     new MockVoiceProvider({
       delayMs: env.MOCK_PROVIDER_DELAY_MS,
       failureRate: env.MOCK_PROVIDER_FAILURE_RATE,
+      autoSimulator,
     });
 
   const sessionManager = new InMemorySessionManager(db, logger);
@@ -93,6 +118,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
     logger,
   );
   callStatusProcessor.setSessionService(sessionService);
+
+  const activeAutoSimulator =
+    voiceProvider instanceof MockVoiceProvider
+      ? voiceProvider.getAutoSimulator()
+      : autoSimulator;
+  activeAutoSimulator?.setEmitter((callAttemptId, status) =>
+    callStatusProcessor.processStatus(callAttemptId, status),
+  );
 
   const recoveryService = new RecoveryService(
     db,
@@ -137,6 +170,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(healthRoutes);
   await app.register(sessionRoutes);
   await app.register(callRoutes);
+  await app.register(mockRoutes);
   await app.register(nebulaRoutes);
 
   if (options.runRecovery !== false) {
@@ -144,6 +178,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await recoveryService.recover();
     });
   }
+
+  app.addHook("onClose", async () => {
+    activeAutoSimulator?.stopAll();
+  });
 
   return app;
 }

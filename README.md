@@ -75,9 +75,18 @@ Business logic stays provider-neutral (`provider_call_id`, not Twilio SIDs).
 VOICE_PROVIDER=mock
 MOCK_PROVIDER_DELAY_MS=50
 MOCK_PROVIDER_FAILURE_RATE=0
+MOCK_AUTO_SIMULATE=true
+# Optional overrides (omit to use MOCK_AUTO_SIMULATE_DEFAULTS in code):
+# MOCK_AUTO_ANSWER_RATE=0.11
+# MOCK_AUTO_MIN_STEP_MS=400
+# MOCK_AUTO_MAX_STEP_MS=2000
+# MOCK_AUTO_MIN_TALK_MS=1500
+# MOCK_AUTO_MAX_TALK_MS=6000
 ```
 
 `MockVoiceProvider` generates fake IDs, never uses the network, and records create/cancel/disconnect for tests.
+
+When `MOCK_AUTO_SIMULATE=true`, each created call automatically progresses through random statuses at random intervals (`initiated` → `ringing` → answer or busy/failed/no_answer → `completed` if answered). Cancel/disconnect stops the schedule. Manual `POST /calls/:id/simulate` still works. The visualizer Developer Mode includes an **Auto-simulate** toggle that pauses/resumes this at runtime (disabling clears in-flight schedules so you can drive statuses with the simulate panel). Leave auto-simulate off in tests for deterministic control.
 
 ## API endpoints
 
@@ -96,6 +105,8 @@ MOCK_PROVIDER_FAILURE_RATE=0
 | `POST` | `/sessions/:id/resume` | Resume from paused |
 | `POST` | `/sessions/:id/stop` | Idempotent stop |
 | `POST` | `/calls/:callAttemptId/simulate` | Mock status events |
+| `GET` | `/mock/auto-simulate` | Auto-simulate availability, enabled flag, and config |
+| `PATCH` | `/mock/auto-simulate` | `{ "enabled"?, "reset"?, "answerRate"?, … }` — pause/resume, reset to code defaults, or patch config |
 
 Optional auth: set `SERVICE_API_KEY` and send `Authorization: Bearer <key>` (health stays open).
 
@@ -143,7 +154,7 @@ API: `http://localhost:3000`
 
 ## Visual testing UI
 
-A Svelte visualizer drives the mock provider via `/calls/:id/simulate` (no Twilio required).
+A Svelte visualizer drives the mock provider. With `MOCK_AUTO_SIMULATE=true`, calls progress on their own; developer-mode simulate buttons remain available for manual control.
 
 ```bash
 # terminal 1 — API

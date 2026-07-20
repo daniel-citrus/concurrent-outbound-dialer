@@ -4,6 +4,8 @@ import type {
   DialingContact,
   DialingSession,
   NebulaProspectContact,
+  MockAutoSimulateConfig,
+  MockAutoSimulateState,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
 } from "./types";
@@ -34,6 +36,10 @@ export function createVisualizerStore() {
   let busy = $state(false);
   let healthOk = $state<boolean | null>(null);
   let voiceProvider = $state<string | null>(null);
+  let autoSimulateAvailable = $state(false);
+  let autoSimulateEnabled = $state(false);
+  let autoSimulateConfig = $state<MockAutoSimulateConfig | null>(null);
+  let autoSimulateDefaults = $state<MockAutoSimulateConfig | null>(null);
 
   async function refreshHealth() {
     try {
@@ -43,6 +49,25 @@ export function createVisualizerStore() {
     } catch {
       healthOk = false;
       voiceProvider = null;
+    }
+  }
+
+  function applyAutoSimulateState(state: MockAutoSimulateState) {
+    autoSimulateAvailable = state.available;
+    autoSimulateEnabled = state.enabled;
+    autoSimulateConfig = { ...state.config };
+    autoSimulateDefaults = { ...state.defaults };
+  }
+
+  async function refreshAutoSimulate() {
+    try {
+      const state = await dialerApi.getMockAutoSimulate();
+      applyAutoSimulateState(state);
+    } catch {
+      autoSimulateAvailable = false;
+      autoSimulateEnabled = false;
+      autoSimulateConfig = null;
+      autoSimulateDefaults = null;
     }
   }
 
@@ -145,10 +170,23 @@ export function createVisualizerStore() {
     get voiceProvider() {
       return voiceProvider;
     },
+    get autoSimulateAvailable() {
+      return autoSimulateAvailable;
+    },
+    get autoSimulateEnabled() {
+      return autoSimulateEnabled;
+    },
+    get autoSimulateConfig() {
+      return autoSimulateConfig;
+    },
+    get autoSimulateDefaults() {
+      return autoSimulateDefaults;
+    },
     setError(message: string | null) {
       error = message;
     },
     refreshHealth,
+    refreshAutoSimulate,
     refreshAll,
     startPolling,
     stopPolling,
@@ -208,6 +246,24 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.stop(id);
+      });
+    },
+    async setAutoSimulate(enabled: boolean) {
+      await run(async () => {
+        const state = await dialerApi.setMockAutoSimulate({ enabled });
+        applyAutoSimulateState(state);
+      });
+    },
+    async updateAutoSimulateConfig(config: Partial<MockAutoSimulateConfig>) {
+      await run(async () => {
+        const state = await dialerApi.setMockAutoSimulate(config);
+        applyAutoSimulateState(state);
+      });
+    },
+    async resetAutoSimulateConfig() {
+      await run(async () => {
+        const state = await dialerApi.setMockAutoSimulate({ reset: true });
+        applyAutoSimulateState(state);
       });
     },
     async simulate(callAttemptId: string, status: Parameters<typeof dialerApi.simulate>[1]) {

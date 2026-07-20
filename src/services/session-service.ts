@@ -35,7 +35,7 @@ const createSessionSchema = z.object({
   clientId: z.string().min(1),
   agentId: z.string().min(1),
   concurrencyLimit: z.number().int().min(1).max(10),
-  autoContinue: z.boolean().optional().default(false),
+  autoContinue: z.boolean().optional().default(true),
   contacts: z
     .array(
       z.object({

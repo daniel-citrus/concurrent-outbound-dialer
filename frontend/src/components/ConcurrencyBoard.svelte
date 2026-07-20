@@ -2,7 +2,6 @@
   import type { CallAttempt, CallAttemptStatus } from "../lib/types";
   import { callStatusTone } from "../lib/call-status-display";
   import { formatStatus, isActiveCall } from "../lib/types";
-  import { formatTimeAgo } from "../lib/contact-display";
   import type { VisualizerStore } from "../lib/store.svelte";
 
   let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
@@ -84,10 +83,16 @@
 <section class="board">
   <header>
     <h2>Concurrency board</h2>
-    <p>Select calls with the checkboxes, then apply a status from the simulate panel.</p>
+    <p>
+      {#if developerMode}
+        Select calls with the checkboxes, then apply a status from the simulate panel.
+      {:else}
+        Live concurrency slots for the current dialing session.
+      {/if}
+    </p>
   </header>
 
-  {#if simulatable.length > 0}
+  {#if developerMode && simulatable.length > 0}
     <div class="bulk">
       <div class="bulk-label">
         <span>Simulate</span>
@@ -147,39 +152,37 @@
       <table>
         <thead>
           <tr>
-            <th class="select-col"></th>
             {#if developerMode}
+              <th class="select-col"></th>
               <th>Slot</th>
             {/if}
             <th>Call status</th>
             <th>Name</th>
             <th>Company</th>
             <th>Title</th>
-            <th>Last Outbound</th>
-            <th>Last Inbound</th>
           </tr>
         </thead>
         <tbody>
           {#each slots.filled as call, index (call.id)}
-            {@const canSelect = isActiveCall(call.status) && !call.isWinner}
+            {@const canSelect = developerMode && isActiveCall(call.status) && !call.isWinner}
             {@const detail = store.getContactDetailByContactId(call.contactId)}
             <tr
               class:selected={canSelect && isSelected(call.id)}
               data-tone={slotTone(call)}
             >
-              <td class="select-col">
-                {#if canSelect}
-                  <label class="select">
-                    <input
-                      type="checkbox"
-                      checked={isSelected(call.id)}
-                      disabled={store.busy}
-                      onchange={() => toggleSelected(call.id)}
-                    />
-                  </label>
-                {/if}
-              </td>
               {#if developerMode}
+                <td class="select-col">
+                  {#if canSelect}
+                    <label class="select">
+                      <input
+                        type="checkbox"
+                        checked={isSelected(call.id)}
+                        disabled={store.busy}
+                        onchange={() => toggleSelected(call.id)}
+                      />
+                    </label>
+                  {/if}
+                </td>
                 <td class="mono">{index + 1}</td>
               {/if}
               <td
@@ -193,23 +196,17 @@
               </td>
               <td>{detail.company}</td>
               <td>{detail.title}</td>
-              <td title={detail.lastOutboundType ?? undefined}>
-                {formatTimeAgo(detail.lastOutboundAt)}
-              </td>
-              <td title={detail.lastInboundType ?? undefined}>
-                {formatTimeAgo(detail.lastInboundAt)}
-              </td>
             </tr>
           {/each}
 
           {#each Array(slots.empties) as _, index (index)}
             <tr class="empty" data-tone="open">
-              <td class="select-col"></td>
               {#if developerMode}
+                <td class="select-col"></td>
                 <td class="mono">{slots.filled.length + index + 1}</td>
               {/if}
               <td class="status-cell" data-tone="open">open permit</td>
-              <td colspan="5" class="hint">Waiting for next claim</td>
+              <td colspan="3" class="hint">Waiting for next claim</td>
             </tr>
           {/each}
         </tbody>

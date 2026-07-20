@@ -224,3 +224,21 @@ export function formatStatus(status: string): string {
 export function isActiveCall(status: CallAttemptStatus): boolean {
   return (ACTIVE_CALL_STATUSES as readonly string[]).includes(status);
 }
+
+export type MockAutoSimulateConfig = {
+  answerRate: number;
+  minStepMs: number;
+  maxStepMs: number;
+  minTalkMs: number;
+  maxTalkMs: number;
+  busyWeight: number;
+  failedWeight: number;
+  noAnswerWeight: number;
+};
+
+export type MockAutoSimulateState = {
+  available: boolean;
+  enabled: boolean;
+  config: MockAutoSimulateConfig;
+  defaults: MockAutoSimulateConfig;
+};

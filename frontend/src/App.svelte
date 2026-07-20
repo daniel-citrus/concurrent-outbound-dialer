@@ -7,6 +7,7 @@
   import SemaphoreBoard from "./components/SemaphoreBoard.svelte";
   import ContactList from "./components/ContactList.svelte";
   import WinnerPopup from "./components/WinnerPopup.svelte";
+  import AutoSimulatePanel from "./components/AutoSimulatePanel.svelte";
 
   const store = createVisualizerStore();
   let phase = $state<"setup" | "session">("setup");
@@ -14,7 +15,22 @@
 
   onMount(() => {
     void store.refreshHealth();
+    void store.refreshAutoSimulate();
     return () => store.stopPolling();
+  });
+
+  $effect(() => {
+    if (developerMode) {
+      void store.refreshAutoSimulate();
+      return;
+    }
+    // Outside developer mode, keep auto-simulate on when the backend supports it.
+    void (async () => {
+      await store.refreshAutoSimulate();
+      if (store.autoSimulateAvailable && !store.autoSimulateEnabled) {
+        await store.setAutoSimulate(true);
+      }
+    })();
   });
 
   function backToSetup() {
@@ -35,6 +51,21 @@
         <span>Developer Mode</span>
       </label>
       {#if developerMode}
+        <label
+          class="dev-toggle"
+          class:disabled={!store.autoSimulateAvailable}
+          title={store.autoSimulateAvailable
+            ? "When off, use the simulate panel to drive call statuses"
+            : "Set MOCK_AUTO_SIMULATE=true on the API to enable"}
+        >
+          <input
+            type="checkbox"
+            checked={store.autoSimulateEnabled}
+            disabled={!store.autoSimulateAvailable || store.busy}
+            onchange={(e) => void store.setAutoSimulate(e.currentTarget.checked)}
+          />
+          <span>Auto-simulate</span>
+        </label>
         <div class="health" data-ok={store.healthOk}>
           <span class="dot"></span>
           {#if store.healthOk === null}
@@ -63,6 +94,7 @@
       <SessionBar {store} {developerMode} />
       <WinnerPopup {store} />
       {#if developerMode}
+        <AutoSimulatePanel {store} />
         <SemaphoreBoard {store} />
       {/if}
       <ConcurrencyBoard {store} {developerMode} />
@@ -130,6 +162,11 @@
 
   .dev-toggle span {
     opacity: 0.72;
+  }
+
+  .dev-toggle.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .health {

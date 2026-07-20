@@ -5,12 +5,15 @@ import type {
   VoiceProvider,
 } from "./voice-provider.js";
 import { providerFailure } from "../domain/errors.js";
+import type { MockCallAutoSimulator } from "./mock-call-auto-simulator.js";
 
 export type MockVoiceProviderOptions = {
   delayMs?: number;
   failureRate?: number;
   /** Deterministic failure for specific attempt IDs (tests). */
   failAttemptIds?: Set<string>;
+  /** When set, schedules random status progressions after createCall. */
+  autoSimulator?: MockCallAutoSimulator | null;
 };
 
 export type MockProviderCallRecord = {
@@ -29,17 +32,24 @@ export class MockVoiceProvider implements VoiceProvider {
   private delayMs: number;
   private failureRate: number;
   private failAttemptIds: Set<string>;
+  private autoSimulator: MockCallAutoSimulator | null;
 
   constructor(options: MockVoiceProviderOptions = {}) {
     this.delayMs = options.delayMs ?? 0;
     this.failureRate = options.failureRate ?? 0;
     this.failAttemptIds = options.failAttemptIds ?? new Set();
+    this.autoSimulator = options.autoSimulator ?? null;
   }
 
   configure(options: MockVoiceProviderOptions): void {
     if (options.delayMs !== undefined) this.delayMs = options.delayMs;
     if (options.failureRate !== undefined) this.failureRate = options.failureRate;
     if (options.failAttemptIds !== undefined) this.failAttemptIds = options.failAttemptIds;
+    if (options.autoSimulator !== undefined) this.autoSimulator = options.autoSimulator;
+  }
+
+  getAutoSimulator(): MockCallAutoSimulator | null {
+    return this.autoSimulator;
   }
 
   async createCall(input: CreateCallInput): Promise<CreateCallResult> {
@@ -63,6 +73,8 @@ export class MockVoiceProvider implements VoiceProvider {
       disconnected: false,
     });
 
+    this.autoSimulator?.schedule(input, providerCallId);
+
     return { providerCallId, status: "queued" };
   }
 
@@ -70,6 +82,7 @@ export class MockVoiceProvider implements VoiceProvider {
     if (this.delayMs > 0) {
       await sleep(this.delayMs);
     }
+    this.autoSimulator?.cancel(providerCallId);
     this.cancelRequests.push(providerCallId);
     const record = this.createdCalls.find((c) => c.providerCallId === providerCallId);
     if (record) {
@@ -81,6 +94,7 @@ export class MockVoiceProvider implements VoiceProvider {
     if (this.delayMs > 0) {
       await sleep(this.delayMs);
     }
+    this.autoSimulator?.cancel(providerCallId);
     this.disconnectRequests.push(providerCallId);
     const record = this.createdCalls.find((c) => c.providerCallId === providerCallId);
     if (record) {
@@ -89,6 +103,7 @@ export class MockVoiceProvider implements VoiceProvider {
   }
 
   reset(): void {
+    this.autoSimulator?.stopAll();
     this.createdCalls.length = 0;
     this.cancelRequests.length = 0;
     this.disconnectRequests.length = 0;

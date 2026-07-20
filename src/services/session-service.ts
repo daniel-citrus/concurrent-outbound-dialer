@@ -60,6 +60,38 @@ export type SessionStatusSnapshot = {
   updatedAt: string;
 };
 
+export type SessionRuntimeResource = {
+  callAttemptId: string;
+  providerCallId: string | null;
+  permitReleased: boolean;
+  contactId: string | null;
+  phoneNumber: string | null;
+  callStatus: string | null;
+};
+
+export type SessionRuntimeSnapshot = {
+  sessionId: string;
+  sessionStatus: string;
+  concurrencyLimit: number;
+  controllerPresent: boolean;
+  semaphore: {
+    capacity: number;
+    availablePermits: number;
+    occupiedPermits: number;
+    waiters: number;
+  };
+  mutex: {
+    locked: boolean;
+    resource: "reconciliation";
+  };
+  orchestrator: {
+    reconcileRunning: boolean;
+    reconcileQueued: boolean;
+  };
+  reconciliationPending: boolean;
+  resources: SessionRuntimeResource[];
+};
+
 export class SessionService {
   constructor(
     private readonly db: DbPool,
@@ -187,6 +219,79 @@ export class SessionService {
       winningCall,
       activeCalls,
       updatedAt: session.updatedAt.toISOString(),
+    };
+  }
+
+  async getRuntimeSnapshot(sessionId: string): Promise<SessionRuntimeSnapshot> {
+    const session = await this.getSession(sessionId);
+    const controller = this.sessionManager.get(sessionId);
+    const orchestrator = this.orchestrator.getReconcileState(sessionId);
+    const attempts = new CallAttemptRepository(this.db);
+    const contacts = new ContactRepository(this.db);
+    const activeAttempts = await attempts.listActiveBySession(sessionId);
+    const contactRows = await contacts.listBySession(sessionId);
+    const contactById = new Map(contactRows.map((contact) => [contact.id, contact]));
+
+    if (!controller) {
+      return {
+        sessionId: session.id,
+        sessionStatus: session.status,
+        concurrencyLimit: session.concurrencyLimit,
+        controllerPresent: false,
+        semaphore: {
+          capacity: session.concurrencyLimit,
+          availablePermits: session.concurrencyLimit,
+          occupiedPermits: 0,
+          waiters: 0,
+        },
+        mutex: {
+          locked: false,
+          resource: "reconciliation",
+        },
+        orchestrator: {
+          reconcileRunning: orchestrator.running,
+          reconcileQueued: orchestrator.queued,
+        },
+        reconciliationPending: false,
+        resources: [],
+      };
+    }
+
+    const resources = [...controller.activeCalls.values()].map((state) => {
+      const attempt = activeAttempts.find((row) => row.id === state.callAttemptId);
+      const contact = attempt ? contactById.get(attempt.contactId) : undefined;
+
+      return {
+        callAttemptId: state.callAttemptId,
+        providerCallId: state.providerCallId,
+        permitReleased: state.permitReleased,
+        contactId: attempt?.contactId ?? null,
+        phoneNumber: contact?.phoneNumber ?? null,
+        callStatus: attempt?.status ?? null,
+      };
+    });
+
+    return {
+      sessionId: session.id,
+      sessionStatus: controller.status,
+      concurrencyLimit: controller.concurrencyLimit,
+      controllerPresent: true,
+      semaphore: {
+        capacity: controller.concurrencyLimit,
+        availablePermits: controller.availablePermits(),
+        occupiedPermits: controller.occupiedPermits(),
+        waiters: controller.semaphoreWaiterCount(),
+      },
+      mutex: {
+        locked: controller.reconciliationMutex.isLocked(),
+        resource: "reconciliation",
+      },
+      orchestrator: {
+        reconcileRunning: orchestrator.running,
+        reconcileQueued: orchestrator.queued,
+      },
+      reconciliationPending: controller.reconciliationPending,
+      resources,
     };
   }
 

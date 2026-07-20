@@ -2,7 +2,7 @@
   import type { VisualizerStore } from "../lib/store.svelte";
   import { formatStatus } from "../lib/types";
 
-  let { store }: { store: VisualizerStore } = $props();
+  let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
 
   const session = $derived(store.session);
   const snapshot = $derived(store.snapshot);
@@ -21,11 +21,11 @@
 {#if session}
   <section class="bar">
     <div class="identity">
-      <p class="label">Session</p>
-      <p class="mono id">{session.id.slice(0, 8)}…</p>
-      <p class="meta mono">
-        {session.clientId} · {session.agentId}
-      </p>
+      <p class="label">Agent</p>
+      <p class="id">{store.agentLabel ?? session.agentId}</p>
+      {#if developerMode}
+        <p class="meta mono">{session.id}</p>
+      {/if}
     </div>
 
     <div class="stat">
@@ -33,11 +33,6 @@
       <p class="value status" data-status={session.status}>
         {formatStatus(session.status)}
       </p>
-    </div>
-
-    <div class="stat">
-      <p class="label">Version</p>
-      <p class="value mono">{snapshot?.stateVersion ?? session.stateVersion}</p>
     </div>
 
     <div class="stat">
@@ -71,9 +66,6 @@
           Stop
         </button>
       {/if}
-      <button type="button" class="ghost" disabled={store.busy} onclick={() => store.refreshAll()}>
-        Refresh
-      </button>
     </div>
   </section>
 {/if}
@@ -81,7 +73,7 @@
 <style>
   .bar {
     display: grid;
-    grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)) auto;
+    grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)) auto;
     gap: 1rem;
     align-items: end;
     padding: 1rem 1.25rem;
@@ -107,6 +99,7 @@
     margin-top: 0.15rem;
     font-size: 0.78rem;
     color: var(--ink-muted);
+    overflow-wrap: anywhere;
   }
 
   .value {
@@ -145,11 +138,16 @@
 
   button {
     border: 1px solid var(--line);
-    background: #fff;
+    background: var(--button-bg);
     color: var(--ink);
     font-weight: 600;
     font-size: 0.85rem;
     padding: 0.45rem 0.75rem;
+  }
+
+  button:hover:not(:disabled):not(.primary):not(.danger) {
+    background: var(--button-hover);
+    border-color: var(--accent);
   }
 
   button.primary {
@@ -162,10 +160,6 @@
     background: transparent;
     border-color: var(--fail);
     color: var(--fail);
-  }
-
-  button.ghost {
-    background: transparent;
   }
 
   button:disabled {

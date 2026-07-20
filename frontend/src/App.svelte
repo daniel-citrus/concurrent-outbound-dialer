@@ -4,11 +4,13 @@
   import SessionSetup from "./components/SessionSetup.svelte";
   import SessionBar from "./components/SessionBar.svelte";
   import ConcurrencyBoard from "./components/ConcurrencyBoard.svelte";
+  import SemaphoreBoard from "./components/SemaphoreBoard.svelte";
   import ContactList from "./components/ContactList.svelte";
   import WinnerCard from "./components/WinnerCard.svelte";
 
   const store = createVisualizerStore();
   let phase = $state<"setup" | "session">("setup");
+  let developerMode = $state(false);
 
   onMount(() => {
     void store.refreshHealth();
@@ -27,14 +29,22 @@
       <p class="eyebrow">Concurrent outbound dialer</p>
       <h1>Visualizer</h1>
     </div>
-    <div class="health" data-ok={store.healthOk}>
-      <span class="dot"></span>
-      {#if store.healthOk === null}
-        Checking API…
-      {:else if store.healthOk}
-        Backend connected · mock provider
-      {:else}
-        Backend unreachable — run <code class="mono">npm run dev</code> on :3000
+    <div class="top-right">
+      <label class="dev-toggle">
+        <input type="checkbox" bind:checked={developerMode} />
+        <span>Developer Mode</span>
+      </label>
+      {#if developerMode}
+        <div class="health" data-ok={store.healthOk}>
+          <span class="dot"></span>
+          {#if store.healthOk === null}
+            Checking API…
+          {:else if store.healthOk}
+            Backend connected{#if store.voiceProvider} · {store.voiceProvider} provider{/if}
+          {:else}
+            Backend unreachable — run <code class="mono">npm run dev</code> on :3000
+          {/if}
+        </div>
       {/if}
     </div>
   </header>
@@ -44,16 +54,19 @@
   {/if}
 
   {#if phase === "setup"}
-    <SessionSetup store={store} onCreated={() => (phase = "session")} />
+    <SessionSetup store={store} {developerMode} onCreated={() => (phase = "session")} />
   {:else}
     <div class="session">
       <div class="toolbar">
         <button type="button" class="linkish" onclick={backToSetup}>← New session</button>
       </div>
-      <SessionBar {store} />
+      <SessionBar {store} {developerMode} />
       <WinnerCard {store} />
-      <ConcurrencyBoard {store} />
-      <ContactList {store} />
+      {#if developerMode}
+        <SemaphoreBoard {store} />
+      {/if}
+      <ConcurrencyBoard {store} {developerMode} />
+      <ContactList {store} {developerMode} />
     </div>
   {/if}
 </div>
@@ -90,6 +103,35 @@
     font-weight: 700;
   }
 
+  .top-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.55rem;
+  }
+
+  .dev-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .dev-toggle input {
+    width: 0.85rem;
+    height: 0.85rem;
+    accent-color: var(--accent);
+    opacity: 0.65;
+  }
+
+  .dev-toggle span {
+    opacity: 0.72;
+  }
+
   .health {
     display: flex;
     align-items: center;
@@ -123,8 +165,8 @@
 
   .error {
     padding: 0.75rem 1rem;
-    background: rgba(185, 28, 28, 0.08);
-    border: 1px solid rgba(185, 28, 28, 0.35);
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.35);
     color: var(--fail);
     font-size: 0.9rem;
   }

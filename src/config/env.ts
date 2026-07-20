@@ -17,6 +17,11 @@ const envSchema = z.object({
     .default("info"),
   CREATING_ATTEMPT_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
+  NEBULA_SUPABASE_URL: z
+    .union([z.string().url(), z.literal("")])
+    .optional()
+    .default(""),
+  NEBULA_SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
 });
 
 export type Env = z.infer<typeof envSchema>;

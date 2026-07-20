@@ -46,6 +46,11 @@ export class SessionController {
     return this.concurrencyLimit - this.availablePermits();
   }
 
+  semaphoreWaiterCount(): number {
+    const internal = this.semaphore as unknown as { _queue?: unknown[] };
+    return internal._queue?.length ?? 0;
+  }
+
   async acquirePermitForAttempt(callAttemptId: string): Promise<void> {
     const [, release] = await this.semaphore.acquire();
     const existing = this.activeCalls.get(callAttemptId);

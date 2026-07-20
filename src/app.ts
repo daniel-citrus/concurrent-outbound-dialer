@@ -15,6 +15,7 @@ import { RecoveryService } from "./services/recovery-service.js";
 import { healthRoutes } from "./routes/health.routes.js";
 import { sessionRoutes } from "./routes/sessions.routes.js";
 import { callRoutes } from "./routes/calls.routes.js";
+import { nebulaRoutes } from "./routes/nebula.routes.js";
 import type { AppServices } from "./types/app.js";
 import {
   registerErrorHandler,
@@ -133,6 +134,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(healthRoutes);
   await app.register(sessionRoutes);
   await app.register(callRoutes);
+  await app.register(nebulaRoutes);
 
   if (options.runRecovery !== false) {
     app.addHook("onReady", async () => {

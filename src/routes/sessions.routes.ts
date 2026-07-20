@@ -25,6 +25,13 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  app.get<{ Params: { sessionId: string } }>(
+    "/sessions/:sessionId/runtime",
+    async (request) => {
+      return svc().getRuntimeSnapshot(request.params.sessionId);
+    },
+  );
+
   app.get<{
     Params: { sessionId: string };
     Querystring: { afterVersion?: string };

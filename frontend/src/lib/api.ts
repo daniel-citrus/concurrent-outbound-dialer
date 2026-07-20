@@ -5,7 +5,11 @@ import type {
   CreateSessionResponse,
   DialingContact,
   DialingSession,
+  NebulaUsersResponse,
+  NebulaProspectListContactsResponse,
+  NebulaProspectListsResponse,
   SessionStatusSnapshot,
+  SessionRuntimeSnapshot,
 } from "./types";
 
 export class ApiError extends Error {
@@ -58,6 +62,18 @@ export const dialerApi = {
     return request("/health");
   },
 
+  getNebulaUsers(): Promise<NebulaUsersResponse> {
+    return request("/nebula/users");
+  },
+
+  getAgentProspectLists(agentId: string): Promise<NebulaProspectListsResponse> {
+    return request(`/nebula/agents/${encodeURIComponent(agentId)}/prospect-lists`);
+  },
+
+  getProspectListContacts(listId: string): Promise<NebulaProspectListContactsResponse> {
+    return request(`/nebula/prospect-lists/${encodeURIComponent(listId)}/contacts`);
+  },
+
   createSession(input: CreateSessionInput): Promise<CreateSessionResponse> {
     return request("/sessions", {
       method: "POST",
@@ -76,6 +92,10 @@ export const dialerApi = {
     const q =
       afterVersion !== undefined ? `?afterVersion=${afterVersion}` : "";
     return request(`/sessions/${sessionId}/status${q}`);
+  },
+
+  getRuntime(sessionId: string): Promise<SessionRuntimeSnapshot> {
+    return request(`/sessions/${sessionId}/runtime`);
   },
 
   getContacts(sessionId: string): Promise<DialingContact[]> {

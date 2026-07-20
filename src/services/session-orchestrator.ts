@@ -47,6 +47,13 @@ export class SessionOrchestrator {
     });
   }
 
+  getReconcileState(sessionId: string): { running: boolean; queued: boolean } {
+    return {
+      running: this.running.has(sessionId),
+      queued: this.queued.has(sessionId),
+    };
+  }
+
   private async drain(sessionId: string): Promise<void> {
     while (this.acceptingWork && this.queued.has(sessionId)) {
       this.queued.delete(sessionId);

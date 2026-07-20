@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { VisualizerStore } from "../lib/store.svelte";
+  import { resolveContactCallStatus } from "../lib/call-status-display";
   import { formatStatus } from "../lib/types";
 
-  let { store }: { store: VisualizerStore } = $props();
+  let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
 
   const sorted = $derived(
     [...store.contacts].sort((a, b) => a.position - b.position),
@@ -19,19 +20,31 @@
     <table>
       <thead>
         <tr>
-          <th>#</th>
-          <th>External ID</th>
-          <th>Phone</th>
+          {#if developerMode}
+            <th>#</th>
+          {/if}
+          <th>Name</th>
+          <th>Company</th>
+          <th>Title</th>
           <th>Status</th>
+          <th>Call status</th>
         </tr>
       </thead>
       <tbody>
         {#each sorted as contact (contact.id)}
-          <tr data-status={contact.status}>
-            <td class="mono">{contact.position}</td>
-            <td class="mono">{contact.externalContactId}</td>
-            <td class="mono">{contact.phoneNumber}</td>
-            <td>{formatStatus(contact.status)}</td>
+          {@const detail = store.getContactDetail(contact.externalContactId)}
+          {@const callStatus = resolveContactCallStatus(contact.id, store.calls)}
+          <tr>
+            {#if developerMode}
+              <td class="mono">{contact.position}</td>
+            {/if}
+            <td>
+              <div class="primary-cell">{detail.name}</div>
+            </td>
+            <td>{detail.company}</td>
+            <td>{detail.title}</td>
+            <td>{formatStatus(detail.status)}</td>
+            <td class="call-status" data-tone={callStatus.tone}>{callStatus.label}</td>
           </tr>
         {/each}
       </tbody>
@@ -67,6 +80,7 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.88rem;
+    min-width: 880px;
   }
 
   th {
@@ -84,22 +98,11 @@
 
   td {
     padding: 0.45rem 0.5rem;
-    border-bottom: 1px solid rgba(201, 191, 168, 0.45);
+    border-bottom: 1px solid rgba(45, 58, 77, 0.65);
+    vertical-align: top;
   }
 
-  tr[data-status="dialing"] td:last-child,
-  tr[data-status="claimed"] td:last-child {
-    color: var(--accent-deep);
+  .primary-cell {
     font-weight: 600;
-  }
-
-  tr[data-status="answered"] td:last-child {
-    color: var(--win);
-    font-weight: 600;
-  }
-
-  tr[data-status="failed"] td:last-child,
-  tr[data-status="canceled"] td:last-child {
-    color: var(--fail);
   }
 </style>

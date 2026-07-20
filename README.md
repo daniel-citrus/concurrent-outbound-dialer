@@ -12,7 +12,7 @@ Dialer Service
     └── ...
 ```
 
-PostgreSQL is the durable source of truth for sessions, ordered contacts, call attempts, and append-only events. In-memory `async-mutex` semaphores provide per-session admission control inside a single process. See [ARCHITECTURE.md](./ARCHITECTURE.md) for Mermaid diagrams.
+PostgreSQL is the durable source of truth for sessions, ordered contacts, call attempts, and append-only events. In-memory `async-mutex` semaphores provide per-session admission control inside a single process. See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for Mermaid diagrams.
 
 ## Session controller lifecycle
 
@@ -215,7 +215,3 @@ With the mock provider, provider-side call verification is limited — persisted
 - Replace in-memory semaphores with DB-backed leases or a distributed limiter
 - Sticky session routing or externalize controllers
 - Shared recovery with fencing tokens so two instances do not launch the same contact
-
-## Implementation status
-
-See [IMPLEMENTATION.md](./IMPLEMENTATION.md).

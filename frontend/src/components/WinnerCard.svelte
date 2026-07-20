@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { VisualizerStore } from "../lib/store.svelte";
+  import { callStatusTone } from "../lib/call-status-display";
   import { formatStatus } from "../lib/types";
 
   let { store }: { store: VisualizerStore } = $props();
@@ -20,8 +21,11 @@
     <p class="label">Winning call</p>
     <h2 class="mono">{contact?.phoneNumber ?? "—"}</h2>
     <p class="meta mono">
-      {contact?.externalContactId ?? winner.contactId} · {formatStatus(winner.status)} ·
-      {winner.providerCallId ?? "no provider id"}
+      {contact?.externalContactId ?? winner.contactId} ·
+      <span class="call-status" data-tone={callStatusTone(winner.status, { isWinner: true })}>
+        {formatStatus(winner.status)}
+      </span>
+      · {winner.providerCallId ?? "no provider id"}
     </p>
   </section>
 {/if}
@@ -29,8 +33,8 @@
 <style>
   .winner {
     padding: 1.1rem 1.25rem;
-    background: linear-gradient(120deg, rgba(21, 128, 61, 0.12), rgba(251, 248, 241, 0.9));
-    border: 1px solid rgba(21, 128, 61, 0.35);
+    background: linear-gradient(120deg, rgba(74, 222, 128, 0.14), rgba(22, 29, 39, 0.95));
+    border: 1px solid rgba(74, 222, 128, 0.35);
     animation: rise 320ms ease-out;
   }
 

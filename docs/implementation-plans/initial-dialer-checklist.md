@@ -35,7 +35,7 @@ The existing Svelte frontend was removed (spec: no frontend; API is `/sessions`-
 - [x] 20. Graceful shutdown
 - [x] 21. Unit tests
 - [x] 22. Integration tests
-- [x] 23. Documentation and diagrams (`README.md`, `ARCHITECTURE.md`)
+- [x] 23. Documentation and diagrams (`README.md`, `docs/ARCHITECTURE.md`)
 
 ## Verification
 

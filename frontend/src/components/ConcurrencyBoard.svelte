@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { CallAttempt, CallAttemptStatus } from "../lib/types";
-  import { formatStatus, isActiveCall, SIMULATE_STATUSES } from "../lib/types";
+  import { callStatusTone } from "../lib/call-status-display";
+  import { formatStatus, isActiveCall } from "../lib/types";
+  import { formatTimeAgo } from "../lib/contact-display";
   import type { VisualizerStore } from "../lib/store.svelte";
 
-  let { store }: { store: VisualizerStore } = $props();
+  let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
 
   let selectedIds = $state<string[]>([]);
 
@@ -17,7 +19,6 @@
   const simulatableIds = $derived(simulatable.map((c) => c.id));
   const limit = $derived(session?.concurrencyLimit ?? 0);
 
-  // Drop selections that are no longer simulatable (terminal / cancelled / missing).
   $effect(() => {
     const allowed = new Set(simulatableIds);
     const next = selectedIds.filter((id) => allowed.has(id));
@@ -46,13 +47,12 @@
   ];
 
   function slotTone(call: CallAttempt): string {
+    return callStatusTone(call.status, { isWinner: call.isWinner });
+  }
+
+  function statusLabel(call: CallAttempt): string {
     if (call.isWinner) return "winner";
-    if (call.status === "ringing") return "ringing";
-    if (call.status === "in_progress") return "answered";
-    if (call.status === "creating" || call.status === "queued" || call.status === "initiated") {
-      return "dialing";
-    }
-    return "idle";
+    return formatStatus(call.status);
   }
 
   function isSelected(id: string): boolean {
@@ -84,10 +84,7 @@
 <section class="board">
   <header>
     <h2>Concurrency board</h2>
-    <p>
-      Select calls with the checkboxes, then apply a status to the selection — or use All for every
-      active slot.
-    </p>
+    <p>Select calls with the checkboxes, then apply a status from the simulate panel.</p>
   </header>
 
   {#if simulatable.length > 0}
@@ -125,20 +122,6 @@
             </button>
           {/each}
         </div>
-        <details>
-          <summary>More selected statuses</summary>
-          <div class="sim">
-            {#each SIMULATE_STATUSES as status}
-              <button
-                type="button"
-                disabled={store.busy || selectedCount === 0}
-                onclick={() => applySelected(status)}
-              >
-                {formatStatus(status)}
-              </button>
-            {/each}
-          </div>
-        </details>
       </div>
 
       <div class="action-block">
@@ -159,73 +142,79 @@
     </div>
   {/if}
 
-  <div class="slots" style={`--cols: ${Math.max(limit, 1)}`}>
-    {#each slots.filled as call (call.id)}
-      {@const canSelect = isActiveCall(call.status) && !call.isWinner}
-      <article
-        class="slot"
-        class:selected={canSelect && isSelected(call.id)}
-        data-tone={slotTone(call)}
-      >
-        <div class="slot-top">
-          {#if canSelect}
-            <label class="select">
-              <input
-                type="checkbox"
-                checked={isSelected(call.id)}
-                disabled={store.busy}
-                onchange={() => toggleSelected(call.id)}
-              />
-              <span class="badge">{formatStatus(call.status)}</span>
-            </label>
-          {:else}
-            <span class="badge">{call.isWinner ? "winner" : formatStatus(call.status)}</span>
-          {/if}
-          <span class="mono tiny">{call.id.slice(0, 8)}</span>
-        </div>
-        <p class="mono phone">
-          {store.contacts.find((c) => c.id === call.contactId)?.phoneNumber ?? "—"}
-        </p>
-        <p class="mono provider">{call.providerCallId ?? "creating…"}</p>
-
-        {#if canSelect}
-          <div class="sim">
-            {#each quickActions as status}
-              <button
-                type="button"
-                disabled={store.busy || call.status === status}
-                onclick={() => store.simulate(call.id, status)}
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="select-col"></th>
+            {#if developerMode}
+              <th>Slot</th>
+            {/if}
+            <th>Call status</th>
+            <th>Name</th>
+            <th>Company</th>
+            <th>Title</th>
+            <th>Last Outbound</th>
+            <th>Last Inbound</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each slots.filled as call, index (call.id)}
+            {@const canSelect = isActiveCall(call.status) && !call.isWinner}
+            {@const detail = store.getContactDetailByContactId(call.contactId)}
+            <tr
+              class:selected={canSelect && isSelected(call.id)}
+              data-tone={slotTone(call)}
+            >
+              <td class="select-col">
+                {#if canSelect}
+                  <label class="select">
+                    <input
+                      type="checkbox"
+                      checked={isSelected(call.id)}
+                      disabled={store.busy}
+                      onchange={() => toggleSelected(call.id)}
+                    />
+                  </label>
+                {/if}
+              </td>
+              {#if developerMode}
+                <td class="mono">{index + 1}</td>
+              {/if}
+              <td
+                class="status-cell"
+                data-tone={callStatusTone(call.status, { isWinner: call.isWinner })}
               >
-                {formatStatus(status)}
-              </button>
-            {/each}
-          </div>
-          <details>
-            <summary>More statuses</summary>
-            <div class="sim">
-              {#each SIMULATE_STATUSES as status}
-                <button
-                  type="button"
-                  disabled={store.busy || call.status === status}
-                  onclick={() => store.simulate(call.id, status)}
-                >
-                  {formatStatus(status)}
-                </button>
-              {/each}
-            </div>
-          </details>
-        {:else if call.isWinner}
-          <p class="hint">Winner selected — other legs cancel/disconnect.</p>
-        {/if}
-      </article>
-    {/each}
+                {statusLabel(call)}
+              </td>
+              <td>
+                <div class="primary-cell">{detail.name}</div>
+              </td>
+              <td>{detail.company}</td>
+              <td>{detail.title}</td>
+              <td title={detail.lastOutboundType ?? undefined}>
+                {formatTimeAgo(detail.lastOutboundAt)}
+              </td>
+              <td title={detail.lastInboundType ?? undefined}>
+                {formatTimeAgo(detail.lastInboundAt)}
+              </td>
+            </tr>
+          {/each}
 
-    {#each Array(slots.empties) as _, i (i)}
-      <article class="slot empty">
-        <span class="badge">open permit</span>
-        <p class="hint">Waiting for next claim</p>
-      </article>
-    {/each}
+          {#each Array(slots.empties) as _, index (index)}
+            <tr class="empty" data-tone="open">
+              <td class="select-col"></td>
+              {#if developerMode}
+                <td class="mono">{slots.filled.length + index + 1}</td>
+              {/if}
+              <td class="status-cell" data-tone="open">open permit</td>
+              <td colspan="5" class="hint">Waiting for next claim</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -306,63 +295,113 @@
   }
 
   .sim button.winner-action {
-    border-color: rgba(21, 128, 61, 0.45);
+    border-color: rgba(74, 222, 128, 0.45);
     color: var(--win);
   }
 
-  .slots {
+  .panel {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 0.85rem;
-  }
-
-  .slot {
-    display: grid;
-    gap: 0.5rem;
-    padding: 0.9rem;
+    padding: 1.1rem 1.25rem;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-left: 4px solid var(--slot);
-    min-height: 9.5rem;
+  }
+
+  .table-wrap {
+    overflow: auto;
+    max-height: 22rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    min-width: 880px;
+  }
+
+  th {
+    text-align: left;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-muted);
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+  }
+
+  td {
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid rgba(45, 58, 77, 0.65);
+    vertical-align: middle;
+  }
+
+  tbody tr {
     animation: rise 280ms ease-out;
+    box-shadow: inset 4px 0 0 var(--slot);
   }
 
-  .slot.selected {
-    border-color: var(--accent);
-    background: rgba(13, 148, 136, 0.06);
+  tbody tr.selected {
+    background: rgba(45, 212, 191, 0.1);
   }
 
-  .slot[data-tone="dialing"] {
-    border-left-color: var(--accent);
+  tbody tr[data-tone="dialing"] {
+    box-shadow: inset 4px 0 0 var(--accent);
   }
 
-  .slot[data-tone="ringing"] {
-    border-left-color: var(--ring);
+  tbody tr[data-tone="dialing"] .status-cell {
+    color: var(--accent-deep);
+    font-weight: 600;
+  }
+
+  tbody tr[data-tone="ringing"] {
+    box-shadow: inset 4px 0 0 var(--ring);
     animation: pulse 1.4s ease-in-out infinite;
   }
 
-  .slot[data-tone="answered"],
-  .slot[data-tone="winner"] {
-    border-left-color: var(--win);
+  tbody tr[data-tone="ringing"] .status-cell {
+    color: var(--ring);
+    font-weight: 600;
   }
 
-  .slot.empty {
+  tbody tr[data-tone="answered"],
+  tbody tr[data-tone="winner"] {
+    box-shadow: inset 4px 0 0 var(--win);
+  }
+
+  tbody tr[data-tone="answered"] .status-cell,
+  tbody tr[data-tone="winner"] .status-cell {
+    color: var(--win);
+    font-weight: 600;
+  }
+
+  tbody tr[data-tone="completed"] .status-cell,
+  tbody tr[data-tone="no-answer"] .status-cell,
+  tbody tr[data-tone="busy"] .status-cell,
+  tbody tr[data-tone="failed"] .status-cell,
+  tbody tr[data-tone="canceled"] .status-cell {
+    font-weight: 600;
+  }
+
+  tbody tr.empty {
     opacity: 0.72;
-    background: transparent;
-    border-style: dashed;
+    box-shadow: inset 4px 0 0 rgba(45, 58, 77, 0.45);
   }
 
-  .slot-top {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    align-items: center;
+  tbody tr.empty td {
+    border-bottom-style: dashed;
+  }
+
+  .select-col {
+    width: 2rem;
+    padding-left: 0.35rem;
   }
 
   .select {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
     cursor: pointer;
   }
 
@@ -372,29 +411,8 @@
     accent-color: var(--accent);
   }
 
-  .badge {
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .tiny {
-    font-size: 0.72rem;
-    color: var(--ink-muted);
-  }
-
-  .phone {
-    font-size: 1rem;
+  .primary-cell {
     font-weight: 600;
-  }
-
-  .provider {
-    font-size: 0.75rem;
-    color: var(--ink-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .sim {
@@ -403,24 +421,19 @@
     gap: 0.35rem;
   }
 
-  .sim button,
-  details button {
+  .sim button {
     border: 1px solid var(--line);
-    background: #fff;
+    background: var(--button-bg);
+    color: var(--ink);
     font-size: 0.72rem;
     font-weight: 600;
     padding: 0.28rem 0.45rem;
   }
 
   .sim button:hover:not(:disabled) {
+    background: var(--button-hover);
     border-color: var(--accent);
     color: var(--accent-deep);
-  }
-
-  details summary {
-    font-size: 0.75rem;
-    color: var(--ink-muted);
-    cursor: pointer;
   }
 
   .hint {
@@ -442,10 +455,10 @@
   @keyframes pulse {
     0%,
     100% {
-      box-shadow: 0 0 0 0 rgba(217, 119, 6, 0);
+      background-color: transparent;
     }
     50% {
-      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
+      background-color: rgba(251, 191, 36, 0.08);
     }
   }
 </style>

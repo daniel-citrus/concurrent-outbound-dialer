@@ -108,6 +108,26 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  app.patch<{ Params: { sessionId: string }; Body: { autoContinue?: boolean } }>(
+    "/sessions/:sessionId/auto-continue",
+    async (request, reply) => {
+      if (typeof request.body?.autoContinue !== "boolean") {
+        return reply.status(400).send({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "autoContinue must be a boolean",
+            requestId: request.requestId,
+          },
+        });
+      }
+      const session = await svc().setAutoContinue(
+        request.params.sessionId,
+        request.body.autoContinue,
+      );
+      return serializeSession(session);
+    },
+  );
+
   app.post<{ Params: { sessionId: string } }>(
     "/sessions/:sessionId/pause",
     async (request) => {

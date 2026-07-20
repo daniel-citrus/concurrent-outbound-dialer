@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { VisualizerStore } from "../lib/store.svelte";
   import { resolveContactCallStatus } from "../lib/call-status-display";
-  import { formatStatus } from "../lib/types";
 
   let { store, developerMode = false }: { store: VisualizerStore; developerMode?: boolean } = $props();
 
@@ -26,7 +25,6 @@
           <th>Name</th>
           <th>Company</th>
           <th>Title</th>
-          <th>Status</th>
           <th>Call status</th>
         </tr>
       </thead>
@@ -43,7 +41,6 @@
             </td>
             <td>{detail.company}</td>
             <td>{detail.title}</td>
-            <td>{formatStatus(detail.status)}</td>
             <td class="call-status" data-tone={callStatus.tone}>{callStatus.label}</td>
           </tr>
         {/each}

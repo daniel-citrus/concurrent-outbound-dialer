@@ -11,11 +11,15 @@ import type { SessionManager } from "../controllers/session-manager.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
 import { EventRepository } from "../repositories/event.repository.js";
+import { SessionRepository } from "../repositories/session.repository.js";
 import type { WinnerSelector } from "./winner-selector.js";
 import type { SessionOrchestrator } from "./session-orchestrator.js";
+import type { SessionService } from "./session-service.js";
+import { tryCompleteSessionIfExhausted } from "./session-completion.js";
 
 export class CallStatusProcessor {
   private orchestrator: SessionOrchestrator | undefined;
+  private sessionService: SessionService | undefined;
 
   constructor(
     private readonly db: DbPool,
@@ -26,6 +30,10 @@ export class CallStatusProcessor {
 
   setOrchestrator(orchestrator: SessionOrchestrator): void {
     this.orchestrator = orchestrator;
+  }
+
+  setSessionService(sessionService: SessionService): void {
+    this.sessionService = sessionService;
   }
 
   async processStatus(
@@ -146,7 +154,27 @@ export class CallStatusProcessor {
       payload: { status: attempt.status, isWinner: attempt.isWinner },
     });
 
-    if (!attempt.isWinner && this.orchestrator) {
+    if (attempt.isWinner) {
+      const completed = await tryCompleteSessionIfExhausted(
+        this.db,
+        this.sessionManager,
+        attempt.sessionId,
+      );
+      if (!completed) {
+        const sessions = new SessionRepository(this.db);
+        const session = await sessions.findById(attempt.sessionId);
+        if (session?.autoContinue && this.sessionService) {
+          try {
+            await this.sessionService.continueDialing(attempt.sessionId, "auto");
+          } catch (error) {
+            this.logger.warn(
+              { err: error, sessionId: attempt.sessionId },
+              "auto-continue after winning call failed",
+            );
+          }
+        }
+      }
+    } else if (this.orchestrator) {
       this.orchestrator.scheduleReconcile(attempt.sessionId);
     }
 

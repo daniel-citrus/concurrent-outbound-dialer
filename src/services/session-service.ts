@@ -7,12 +7,15 @@ import type { DialingContact } from "../domain/contact.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
 import type { DialEvent } from "../domain/event.js";
 import {
+  canContinueSession,
   canPauseSession,
   canResumeSession,
   canStartSession,
   canStopSession,
+  isTerminalCallAttemptStatus,
 } from "../domain/statuses.js";
 import {
+  callAttemptNotFound,
   invalidContactInput,
   invalidSessionTransition,
   sessionNotFound,
@@ -32,6 +35,7 @@ const createSessionSchema = z.object({
   clientId: z.string().min(1),
   agentId: z.string().min(1),
   concurrencyLimit: z.number().int().min(1).max(10),
+  autoContinue: z.boolean().optional().default(false),
   contacts: z
     .array(
       z.object({
@@ -135,6 +139,7 @@ export class SessionService {
         clientId: input.clientId,
         agentId: input.agentId,
         concurrencyLimit: input.concurrencyLimit,
+        autoContinue: input.autoContinue,
       });
 
       const contacts = await contactsRepo.insertMany(client, session.id, input.contacts);
@@ -296,14 +301,25 @@ export class SessionService {
   }
 
   async start(sessionId: string): Promise<DialingSession> {
+    const session = await this.getSession(sessionId);
+
+    if (canContinueSession(session.status)) {
+      return this.continueDialing(sessionId, "manual_start");
+    }
+
     const sessions = new SessionRepository(this.db);
     const events = new EventRepository(this.db);
-    const session = await this.getSession(sessionId);
+    const attempts = new CallAttemptRepository(this.db);
 
     if (!canStartSession(session.status)) {
       throw invalidSessionTransition(
         `Session cannot be started from status ${session.status}.`,
       );
+    }
+
+    const activeCount = await attempts.countActiveBySession(sessionId);
+    if (activeCount > 0) {
+      throw invalidSessionTransition("Cannot start while a call is ongoing.");
     }
 
     const updated = await sessions.updateStatus(sessionId, "running", {
@@ -329,6 +345,93 @@ export class SessionService {
       { sessionId, clientId: session.clientId, agentId: session.agentId },
       "session started",
     );
+
+    return updated;
+  }
+
+  async continueDialing(
+    sessionId: string,
+    reason: "manual_start" | "auto",
+  ): Promise<DialingSession> {
+    const sessions = new SessionRepository(this.db);
+    const attempts = new CallAttemptRepository(this.db);
+    const contacts = new ContactRepository(this.db);
+    const events = new EventRepository(this.db);
+    const session = await this.getSession(sessionId);
+
+    if (!canContinueSession(session.status)) {
+      throw invalidSessionTransition(
+        `Session cannot continue dialing from status ${session.status}.`,
+      );
+    }
+
+    if (!session.winningCallAttemptId) {
+      throw invalidSessionTransition("Session has no winning call to continue from.");
+    }
+
+    const winningCall = await attempts.findById(session.winningCallAttemptId);
+    if (!winningCall) {
+      throw callAttemptNotFound(session.winningCallAttemptId);
+    }
+
+    if (!isTerminalCallAttemptStatus(winningCall.status)) {
+      throw invalidSessionTransition("Finish the current call before continuing.");
+    }
+
+    const activeCount = await attempts.countActiveBySession(sessionId);
+    if (activeCount > 0) {
+      throw invalidSessionTransition("Cannot start while a call is ongoing.");
+    }
+
+    const counts = await contacts.countByStatus(sessionId);
+    const queued = counts["queued"] ?? 0;
+    if (queued <= 0) {
+      throw invalidSessionTransition("No contacts remaining in queue.");
+    }
+
+    const previousWinningCallAttemptId = session.winningCallAttemptId;
+    const updated = await sessions.continueFromWinner(sessionId);
+    if (!updated) {
+      throw invalidSessionTransition("Session continue raced with another transition.");
+    }
+
+    await events.append({
+      sessionId,
+      eventType: reason === "auto" ? "session_auto_continued" : "session_continued",
+      payload: { previousWinningCallAttemptId, reason },
+    });
+
+    const controller = await this.sessionManager.getOrCreate(sessionId);
+    controller.status = "running";
+    this.orchestrator.scheduleReconcile(sessionId);
+
+    this.logger.info(
+      { sessionId, reason, previousWinningCallAttemptId },
+      "session continued dialing",
+    );
+
+    return updated;
+  }
+
+  async setAutoContinue(sessionId: string, autoContinue: boolean): Promise<DialingSession> {
+    const sessions = new SessionRepository(this.db);
+    const events = new EventRepository(this.db);
+    const session = await this.getSession(sessionId);
+
+    if (session.autoContinue === autoContinue) {
+      return session;
+    }
+
+    const updated = await sessions.setAutoContinue(sessionId, autoContinue);
+    if (!updated) {
+      throw sessionNotFound(sessionId);
+    }
+
+    await events.append({
+      sessionId,
+      eventType: "session_auto_continue_updated",
+      payload: { autoContinue },
+    });
 
     return updated;
   }
@@ -477,6 +580,7 @@ export function serializeSession(session: DialingSession) {
     status: session.status,
     concurrencyLimit: session.concurrencyLimit,
     winningCallAttemptId: session.winningCallAttemptId,
+    autoContinue: session.autoContinue,
     stateVersion: session.stateVersion,
     createdAt: session.createdAt.toISOString(),
     startedAt: session.startedAt?.toISOString() ?? null,

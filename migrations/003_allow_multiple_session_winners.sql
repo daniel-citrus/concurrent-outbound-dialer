@@ -1,0 +1,8 @@
+BEGIN;
+
+DROP INDEX IF EXISTS one_winner_per_session;
+
+ALTER TABLE dialing_sessions
+  ADD COLUMN IF NOT EXISTS auto_continue BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMIT;

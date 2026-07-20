@@ -157,6 +157,7 @@ export function createVisualizerStore() {
       agentId: string;
       agentLabel?: string;
       concurrencyLimit: number;
+      autoContinue?: boolean;
       contacts: Array<{ externalContactId: string; phoneNumber: string }>;
       contactDetails?: NebulaProspectContact[];
     }) {
@@ -179,6 +180,13 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.start(id);
+      });
+    },
+    async setAutoContinue(autoContinue: boolean) {
+      if (!session) return;
+      const id = session.id;
+      await run(async () => {
+        session = await dialerApi.setAutoContinue(id, autoContinue);
       });
     },
     async pause() {

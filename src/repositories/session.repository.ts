@@ -32,14 +32,15 @@ export class SessionRepository {
       clientId: string;
       agentId: string;
       concurrencyLimit: number;
+      autoContinue?: boolean;
     },
   ): Promise<DialingSession> {
     try {
       const result = await client.query<SessionRow>(
-        `INSERT INTO dialing_sessions (client_id, agent_id, status, concurrency_limit)
-         VALUES ($1, $2, 'created', $3)
+        `INSERT INTO dialing_sessions (client_id, agent_id, status, concurrency_limit, auto_continue)
+         VALUES ($1, $2, 'created', $3, $4)
          RETURNING *`,
-        [input.clientId, input.agentId, input.concurrencyLimit],
+        [input.clientId, input.agentId, input.concurrencyLimit, input.autoContinue ?? false],
       );
       const row = result.rows[0];
       if (!row) {
@@ -142,8 +143,42 @@ export class SessionRepository {
   async markCompleted(sessionId: string): Promise<DialingSession | null> {
     return this.updateStatus(sessionId, "completed", {
       completedAt: new Date(),
-      expectedStatuses: ["running"],
+      expectedStatuses: ["running", "winner_selected"],
     });
+  }
+
+  async continueFromWinner(sessionId: string): Promise<DialingSession | null> {
+    const result = await this.db.query<SessionRow>(
+      `UPDATE dialing_sessions
+       SET
+         status = 'running',
+         winning_call_attempt_id = NULL,
+         paused_at = NULL,
+         state_version = state_version + 1,
+         updated_at = NOW()
+       WHERE id = $1
+         AND status = 'winner_selected'
+         AND winning_call_attempt_id IS NOT NULL
+       RETURNING *`,
+      [sessionId],
+    );
+    const row = result.rows[0];
+    return row ? mapSession(row) : null;
+  }
+
+  async setAutoContinue(
+    sessionId: string,
+    autoContinue: boolean,
+  ): Promise<DialingSession | null> {
+    const result = await this.db.query<SessionRow>(
+      `UPDATE dialing_sessions
+       SET auto_continue = $2, state_version = state_version + 1, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [sessionId, autoContinue],
+    );
+    const row = result.rows[0];
+    return row ? mapSession(row) : null;
   }
 
   async markFailed(sessionId: string): Promise<DialingSession | null> {

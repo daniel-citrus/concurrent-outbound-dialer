@@ -7,6 +7,7 @@ export type DialingSession = {
   status: SessionStatus;
   concurrencyLimit: number;
   winningCallAttemptId: string | null;
+  autoContinue: boolean;
   stateVersion: number;
   createdAt: Date;
   startedAt: Date | null;

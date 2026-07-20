@@ -90,7 +90,8 @@ MOCK_PROVIDER_FAILURE_RATE=0
 | `GET` | `/sessions/:id/contacts` | Paginated contacts |
 | `GET` | `/sessions/:id/calls` | Paginated attempts |
 | `GET` | `/sessions/:id/events` | Paginated events |
-| `POST` | `/sessions/:id/start` | Start / continue dialing |
+| `POST` | `/sessions/:id/start` | Start dialing, resume from paused, or continue after winner (manual mode) |
+| `PATCH` | `/sessions/:id/auto-continue` | Toggle `{ "autoContinue": true \| false }` mid-session |
 | `POST` | `/sessions/:id/pause` | Stop launches; cancel actives |
 | `POST` | `/sessions/:id/resume` | Resume from paused |
 | `POST` | `/sessions/:id/stop` | Idempotent stop |

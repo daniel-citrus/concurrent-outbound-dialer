@@ -11,7 +11,7 @@
 
   const session = $derived(store.session);
   const activeCalls = $derived(
-    store.calls.filter((c) => isActiveCall(c.status) || c.isWinner),
+    store.calls.filter((c) => isActiveCall(c.status)),
   );
   const simulatable = $derived(
     store.calls.filter((c) => isActiveCall(c.status) && !c.isWinner),

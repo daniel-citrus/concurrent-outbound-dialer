@@ -57,10 +57,13 @@ describe("integration: dialer multi-session service", () => {
        WHERE schemaname = 'public'
          AND indexname IN ('one_active_session_per_client','one_winner_per_session')`,
     );
-    expect(indexes.rows.map((r) => r.indexname).sort()).toEqual([
-      "one_active_session_per_client",
-      "one_winner_per_session",
-    ]);
+    expect(indexes.rows.map((r) => r.indexname)).toEqual(["one_active_session_per_client"]);
+
+    const autoContinueCol = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'dialing_sessions' AND column_name = 'auto_continue'`,
+    );
+    expect(autoContinueCol.rows).toHaveLength(1);
 
     const cols = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -516,5 +519,119 @@ describe("integration: dialer multi-session service", () => {
     expect(status2.json<{ stateVersion: number }>().stateVersion).toBeGreaterThan(
       snap.stateVersion,
     );
+  });
+
+  it("25. manual Start after winner resumes dialing when queue remains", async () => {
+    const sessionId = await startSessionWithContacts(app, {
+      clientId: uniqueClient(),
+      concurrencyLimit: 2,
+      contacts: contactList(6),
+      autoContinue: false,
+    });
+
+    await waitFor(async () => {
+      const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
+      return calls.json<unknown[]>().length === 2;
+    });
+
+    const calls = (
+      await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
+    ).json<Array<{ id: string }>>();
+
+    await app.inject({
+      method: "POST",
+      url: `/calls/${calls[0]!.id}/simulate`,
+      payload: { status: "in_progress" },
+    });
+
+    await waitFor(async () => {
+      const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
+      return session.json<{ status: string }>().status === "winner_selected";
+    });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/sessions/${sessionId}/start`,
+    });
+    expect(blocked.statusCode).toBe(409);
+
+    const winnerId = (
+      await app.inject({ method: "GET", url: `/sessions/${sessionId}` })
+    ).json<{ winningCallAttemptId: string }>().winningCallAttemptId;
+
+    await app.inject({
+      method: "POST",
+      url: `/calls/${winnerId}/simulate`,
+      payload: { status: "completed" },
+    });
+
+    const continued = await app.inject({
+      method: "POST",
+      url: `/sessions/${sessionId}/start`,
+    });
+    expectOk(continued);
+    expect(continued.json<{ status: string }>().status).toBe("running");
+
+    await waitFor(async () => {
+      const callsAfter = await app.inject({
+        method: "GET",
+        url: `/sessions/${sessionId}/calls`,
+      });
+      return callsAfter.json<unknown[]>().length > 2;
+    });
+
+    const allCalls = (
+      await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
+    ).json<Array<{ id: string; isWinner: boolean }>>();
+    expect(allCalls.filter((c) => c.isWinner)).toHaveLength(1);
+  });
+
+  it("26. auto-continue resumes dialing after winning call ends", async () => {
+    const sessionId = await startSessionWithContacts(app, {
+      clientId: uniqueClient(),
+      concurrencyLimit: 2,
+      contacts: contactList(6),
+      autoContinue: true,
+    });
+
+    await waitFor(async () => {
+      const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
+      return calls.json<unknown[]>().length === 2;
+    });
+
+    const callId = (
+      await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
+    ).json<Array<{ id: string }>>()[0]!.id;
+
+    await app.inject({
+      method: "POST",
+      url: `/calls/${callId}/simulate`,
+      payload: { status: "in_progress" },
+    });
+
+    await waitFor(async () => {
+      const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
+      return session.json<{ status: string }>().status === "winner_selected";
+    });
+
+    const winnerId = (
+      await app.inject({ method: "GET", url: `/sessions/${sessionId}` })
+    ).json<{ winningCallAttemptId: string }>().winningCallAttemptId;
+
+    await app.inject({
+      method: "POST",
+      url: `/calls/${winnerId}/simulate`,
+      payload: { status: "completed" },
+    });
+
+    await waitFor(async () => {
+      const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
+      return session.json<{ status: string }>().status === "running";
+    });
+
+    await waitFor(async () => {
+      const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
+      return calls.json<unknown[]>().length > 2;
+    });
   });
 });

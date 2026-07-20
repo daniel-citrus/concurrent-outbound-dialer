@@ -92,12 +92,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
     callCanceler,
     logger,
   );
+  callStatusProcessor.setSessionService(sessionService);
+
   const recoveryService = new RecoveryService(
     db,
     env,
     sessionManager,
     orchestrator,
     callCanceler,
+    sessionService,
     logger,
   );
 

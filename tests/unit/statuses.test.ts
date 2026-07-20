@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateLaunchCount,
   cancelActionForStatus,
+  canContinueSession,
   canPauseSession,
   canResumeSession,
   canStartSession,
@@ -33,6 +34,13 @@ describe("session transitions", () => {
     expect(canStopSession("running")).toBe(true);
     expect(canStopSession("winner_selected")).toBe(true);
     expect(canStopSession("completed")).toBe(false);
+  });
+
+  it("allows continue only from winner_selected", () => {
+    expect(canContinueSession("winner_selected")).toBe(true);
+    expect(canContinueSession("running")).toBe(false);
+    expect(canContinueSession("paused")).toBe(false);
+    expect(canContinueSession("completed")).toBe(false);
   });
 });
 

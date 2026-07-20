@@ -38,6 +38,7 @@ export type DialingSession = {
   status: SessionStatus;
   concurrencyLimit: number;
   winningCallAttemptId: string | null;
+  autoContinue: boolean;
   stateVersion: number;
   createdAt: string;
   startedAt: string | null;
@@ -128,6 +129,7 @@ export type CreateSessionInput = {
   clientId: string;
   agentId: string;
   concurrencyLimit: number;
+  autoContinue?: boolean;
   contacts: Array<{ externalContactId: string; phoneNumber: string }>;
 };
 

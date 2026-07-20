@@ -86,6 +86,8 @@ export async function startSessionWithContacts(
     agentId?: string;
     concurrencyLimit: number;
     contacts: ReturnType<typeof contactList>;
+    autoContinue?: boolean;
+    start?: boolean;
   },
 ) {
   const created = await app.inject({
@@ -96,10 +98,15 @@ export async function startSessionWithContacts(
       agentId: opts.agentId ?? "agent-1",
       concurrencyLimit: opts.concurrencyLimit,
       contacts: opts.contacts,
+      autoContinue: opts.autoContinue,
     },
   });
   expectOk(created, 201);
   const body = created.json<{ id: string }>();
+
+  if (opts.start === false) {
+    return body.id;
+  }
 
   const started = await app.inject({
     method: "POST",

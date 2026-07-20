@@ -6,7 +6,7 @@
   import ConcurrencyBoard from "./components/ConcurrencyBoard.svelte";
   import SemaphoreBoard from "./components/SemaphoreBoard.svelte";
   import ContactList from "./components/ContactList.svelte";
-  import WinnerCard from "./components/WinnerCard.svelte";
+  import WinnerPopup from "./components/WinnerPopup.svelte";
 
   const store = createVisualizerStore();
   let phase = $state<"setup" | "session">("setup");
@@ -61,7 +61,7 @@
         <button type="button" class="linkish" onclick={backToSetup}>← New session</button>
       </div>
       <SessionBar {store} {developerMode} />
-      <WinnerCard {store} />
+      <WinnerPopup {store} />
       {#if developerMode}
         <SemaphoreBoard {store} />
       {/if}

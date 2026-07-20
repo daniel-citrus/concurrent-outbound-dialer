@@ -1,6 +1,6 @@
 # Implementation plan: Multi-round session continue
 
-**Status:** Planned  
+**Status:** Implemented  
 **Created:** 2026-07-20  
 **Updated:** 2026-07-20  
 **Scope:** Allow agents to run multiple connect rounds in one dialing session until the entire contact queue is exhausted.

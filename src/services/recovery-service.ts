@@ -4,6 +4,9 @@ import type { Env } from "../config/env.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { CallCanceler } from "./call-canceler.js";
+import type { SessionService } from "./session-service.js";
+import { isTerminalCallAttemptStatus } from "../domain/statuses.js";
+import { tryCompleteSessionIfExhausted } from "./session-completion.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
@@ -16,6 +19,7 @@ export class RecoveryService {
     private readonly sessionManager: SessionManager,
     private readonly orchestrator: SessionOrchestrator,
     private readonly callCanceler: CallCanceler,
+    private readonly sessionService: SessionService | null,
     private readonly logger: Logger,
   ) {}
 
@@ -60,6 +64,32 @@ export class RecoveryService {
           session.id,
           session.winningCallAttemptId,
         );
+
+        if (session.winningCallAttemptId) {
+          const winningCall = await attempts.findById(session.winningCallAttemptId);
+          const active = await attempts.countActiveBySession(session.id);
+          if (
+            winningCall &&
+            isTerminalCallAttemptStatus(winningCall.status) &&
+            active === 0
+          ) {
+            const completed = await tryCompleteSessionIfExhausted(
+              this.db,
+              this.sessionManager,
+              session.id,
+            );
+            if (!completed && session.autoContinue && this.sessionService) {
+              try {
+                await this.sessionService.continueDialing(session.id, "auto");
+              } catch (error) {
+                this.logger.warn(
+                  { err: error, sessionId: session.id },
+                  "recovery auto-continue skipped",
+                );
+              }
+            }
+          }
+        }
       } else if (session.status === "stopping") {
         await this.callCanceler.cancelAllActiveCalls(session.id);
         const active = await attempts.countActiveBySession(session.id);

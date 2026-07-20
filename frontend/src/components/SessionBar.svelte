@@ -7,14 +7,26 @@
   const session = $derived(store.session);
   const snapshot = $derived(store.snapshot);
 
-  const canStart = $derived(
-    session?.status === "created" || session?.status === "paused",
+  const showStart = $derived(
+    !!session &&
+      (session.status === "created" ||
+        (session.status === "winner_selected" &&
+          (snapshot?.queuedContactCount ?? 0) > 0)),
   );
+
+  const startDisabled = $derived(
+    store.busy || (snapshot?.activeCallCount ?? 0) > 0,
+  );
+
   const canPause = $derived(session?.status === "running");
   const canResume = $derived(session?.status === "paused");
   const canStop = $derived(
     !!session &&
       !["stopped", "completed", "failed"].includes(session.status),
+  );
+
+  const canToggleAutoContinue = $derived(
+    !!session && !["stopped", "completed", "failed"].includes(session.status),
   );
 </script>
 
@@ -48,8 +60,28 @@
     </div>
 
     <div class="actions">
-      {#if canStart && session.status === "created"}
-        <button type="button" class="primary" disabled={store.busy} onclick={() => store.start()}>
+      {#if canToggleAutoContinue}
+        <label class="toggle" title="When enabled, dialing resumes automatically after a winning call ends">
+          <input
+            type="checkbox"
+            checked={session.autoContinue}
+            disabled={store.busy}
+            onchange={(event) => {
+              const input = event.currentTarget as HTMLInputElement;
+              void store.setAutoContinue(input.checked);
+            }}
+          />
+          <span>Auto-continue</span>
+        </label>
+      {/if}
+      {#if showStart}
+        <button
+          type="button"
+          class="primary"
+          disabled={startDisabled}
+          title={startDisabled ? "Finish the current call before starting" : undefined}
+          onclick={() => store.start()}
+        >
           Start
         </button>
       {/if}
@@ -134,6 +166,22 @@
     flex-wrap: wrap;
     gap: 0.45rem;
     justify-content: flex-end;
+    align-items: center;
+  }
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .toggle input {
+    accent-color: var(--accent);
   }
 
   button {

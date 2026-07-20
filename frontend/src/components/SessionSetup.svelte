@@ -31,6 +31,7 @@
   let prospectContactsLoading = $state(false);
   let contactBatchNote = $state("");
   let concurrencyLimit = $state(4);
+  let autoContinue = $state(false);
   let selectedContacts = $state<NebulaProspectContact[]>([]);
 
   onMount(() => {
@@ -144,6 +145,7 @@
         ? nebulaUserDisplayName(selectedAgent)
         : agentId.trim(),
       concurrencyLimit,
+      autoContinue,
       contacts,
       contactDetails: selectedContacts,
     });
@@ -202,6 +204,10 @@
     <label>
       <span>Concurrency (1–10)</span>
       <input type="number" min="1" max="10" bind:value={concurrencyLimit} required />
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={autoContinue} />
+      <span>Auto-continue after winning call</span>
     </label>
   </div>
 
@@ -306,6 +312,12 @@
   label {
     display: grid;
     gap: 0.35rem;
+  }
+
+  .checkbox-label {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: 0.5rem;
   }
 
   label span {

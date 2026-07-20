@@ -110,6 +110,13 @@ export const dialerApi = {
     return request(`/sessions/${sessionId}/start`, { method: "POST" });
   },
 
+  setAutoContinue(sessionId: string, autoContinue: boolean): Promise<DialingSession> {
+    return request(`/sessions/${sessionId}/auto-continue`, {
+      method: "PATCH",
+      body: JSON.stringify({ autoContinue }),
+    });
+  },
+
   pause(sessionId: string): Promise<DialingSession> {
     return request(`/sessions/${sessionId}/pause`, { method: "POST" });
   },

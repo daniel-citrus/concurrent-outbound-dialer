@@ -107,6 +107,9 @@ export const DIAL_EVENT_TYPES = [
   "controller_removed",
   "recovery_started",
   "recovery_completed",
+  "session_continued",
+  "session_auto_continued",
+  "session_auto_continue_updated",
 ] as const;
 
 export type DialEventType = (typeof DIAL_EVENT_TYPES)[number];
@@ -231,6 +234,10 @@ export function canResumeSession(status: SessionStatus): boolean {
 
 export function canStopSession(status: SessionStatus): boolean {
   return (SESSION_STOP_FROM as readonly SessionStatus[]).includes(status);
+}
+
+export function canContinueSession(status: SessionStatus): boolean {
+  return status === "winner_selected";
 }
 
 export function calculateLaunchCount(input: {

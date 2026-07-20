@@ -12,6 +12,7 @@ type SessionRow = {
   status: SessionStatus;
   concurrency_limit: number;
   winning_call_attempt_id: string | null;
+  auto_continue: boolean;
   state_version: number;
   created_at: Date;
   started_at: Date | null;
@@ -67,6 +68,7 @@ export function mapSession(row: SessionRow): DialingSession {
     status: row.status,
     concurrencyLimit: row.concurrency_limit,
     winningCallAttemptId: row.winning_call_attempt_id,
+    autoContinue: row.auto_continue,
     stateVersion: row.state_version,
     createdAt: row.created_at,
     startedAt: row.started_at,

@@ -7,6 +7,7 @@ import type { SessionManager } from "../controllers/session-manager.js";
 import type { SessionController } from "../controllers/session-controller.js";
 import { DomainError } from "../domain/errors.js";
 import { calculateLaunchCount } from "../domain/statuses.js";
+import { tryCompleteSessionIfExhausted } from "./session-completion.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
@@ -114,7 +115,7 @@ export class SessionOrchestrator {
     });
 
     if (launchCount <= 0) {
-      await this.maybeCompleteSession(session.id, persistedActiveCount);
+      await tryCompleteSessionIfExhausted(this.db, this.sessionManager, session.id);
       return [];
     }
 
@@ -123,8 +124,7 @@ export class SessionOrchestrator {
     );
 
     if (claims.length === 0) {
-      const stillActive = await attempts.countActiveBySession(session.id);
-      await this.maybeCompleteSession(session.id, stillActive);
+      await tryCompleteSessionIfExhausted(this.db, this.sessionManager, session.id);
       return [];
     }
 
@@ -211,38 +211,6 @@ export class SessionOrchestrator {
 
       controller.releasePermit(item.callAttempt.id);
       this.scheduleReconcile(controller.sessionId);
-    }
-  }
-
-  private async maybeCompleteSession(
-    sessionId: string,
-    activeCount: number,
-  ): Promise<void> {
-    if (activeCount > 0) {
-      return;
-    }
-
-    const contacts = new ContactRepository(this.db);
-    const sessions = new SessionRepository(this.db);
-    const events = new EventRepository(this.db);
-    const counts = await contacts.countByStatus(sessionId);
-    const queued = counts["queued"] ?? 0;
-    const claimed = counts["claimed"] ?? 0;
-    if (queued > 0 || claimed > 0) {
-      return;
-    }
-
-    const completed = await sessions.markCompleted(sessionId);
-    if (completed) {
-      await events.append({
-        sessionId,
-        eventType: "session_completed",
-        payload: {},
-      });
-      const controller = this.sessionManager.get(sessionId);
-      if (controller) {
-        controller.status = "completed";
-      }
     }
   }
 }

@@ -15,7 +15,8 @@ import { SessionRepository } from "../repositories/session.repository.js";
 import type { WinnerSelector } from "./winner-selector.js";
 import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { SessionService } from "./session-service.js";
-import { tryCompleteSessionIfExhausted } from "./session-completion.js";
+import { tryCompleteOrAutoContinue } from "./session-completion.js";
+import { releasePermitDurable } from "./permit-release.js";
 
 export class CallStatusProcessor {
   private orchestrator: SessionOrchestrator | undefined;
@@ -119,8 +120,6 @@ export class CallStatusProcessor {
     events: EventRepository,
     controller: Awaited<ReturnType<SessionManager["getOrCreate"]>>,
   ): Promise<void> {
-    const attempts = new CallAttemptRepository(this.db);
-
     if (!attempt.isWinner) {
       const contactStatus =
         attempt.status === "failed"
@@ -140,12 +139,7 @@ export class CallStatusProcessor {
       });
     }
 
-    const marked = await attempts.markPermitReleased(attempt.id);
-    if (marked) {
-      controller.releasePermit(attempt.id);
-    } else {
-      controller.releasePermit(attempt.id);
-    }
+    await releasePermitDurable(this.db, controller, attempt.id);
 
     await events.append({
       sessionId: attempt.sessionId,
@@ -155,25 +149,16 @@ export class CallStatusProcessor {
     });
 
     if (attempt.isWinner) {
-      const completed = await tryCompleteSessionIfExhausted(
-        this.db,
-        this.sessionManager,
-        attempt.sessionId,
-      );
-      if (!completed) {
-        const sessions = new SessionRepository(this.db);
-        const session = await sessions.findById(attempt.sessionId);
-        if (session?.autoContinue && this.sessionService) {
-          try {
-            await this.sessionService.continueDialing(attempt.sessionId, "auto");
-          } catch (error) {
-            this.logger.warn(
-              { err: error, sessionId: attempt.sessionId },
-              "auto-continue after winning call failed",
-            );
-          }
-        }
-      }
+      const sessions = new SessionRepository(this.db);
+      const session = await sessions.findById(attempt.sessionId);
+      await tryCompleteOrAutoContinue(this.db, this.sessionManager, attempt.sessionId, {
+        autoContinue: session?.autoContinue ?? false,
+        continueDialing: this.sessionService
+          ? (id, reason) => this.sessionService!.continueDialing(id, reason)
+          : null,
+        logger: this.logger,
+        warnMessage: "auto-continue after winning call failed",
+      });
     } else if (this.orchestrator) {
       this.orchestrator.scheduleReconcile(attempt.sessionId);
     }

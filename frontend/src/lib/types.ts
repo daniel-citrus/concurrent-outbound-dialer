@@ -197,6 +197,7 @@ export type NebulaProspectContact = {
   lastInboundType: string | null;
 };
 
+/** Must stay aligned with backend `ACTIVE_CALL_ATTEMPT_STATUSES`. */
 export const ACTIVE_CALL_STATUSES: readonly CallAttemptStatus[] = [
   "creating",
   "queued",
@@ -205,6 +206,7 @@ export const ACTIVE_CALL_STATUSES: readonly CallAttemptStatus[] = [
   "in_progress",
 ] as const;
 
+/** Must stay aligned with backend `SIMULATABLE_CALL_STATUSES`. */
 export const SIMULATE_STATUSES: readonly CallAttemptStatus[] = [
   "queued",
   "initiated",
@@ -215,6 +217,7 @@ export const SIMULATE_STATUSES: readonly CallAttemptStatus[] = [
   "failed",
   "no_answer",
   "canceled",
+  "unknown",
 ] as const;
 
 export function formatStatus(status: string): string {

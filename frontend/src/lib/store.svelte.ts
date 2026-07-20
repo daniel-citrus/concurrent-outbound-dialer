@@ -12,16 +12,6 @@ import type {
 import { isActiveCall } from "./types";
 import { fallbackContactDetail } from "./contact-display";
 
-export type VisualizerState = {
-  session: DialingSession | null;
-  snapshot: SessionStatusSnapshot | null;
-  contacts: DialingContact[];
-  calls: CallAttempt[];
-  error: string | null;
-  busy: boolean;
-  healthOk: boolean | null;
-};
-
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 export function createVisualizerStore() {

@@ -11,14 +11,6 @@ export const SESSION_STATUSES = [
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-export const ACTIVE_SESSION_STATUSES: readonly SessionStatus[] = [
-  "created",
-  "running",
-  "paused",
-  "winner_selected",
-  "stopping",
-] as const;
-
 export const TERMINAL_SESSION_STATUSES: readonly SessionStatus[] = [
   "stopped",
   "completed",
@@ -113,14 +105,6 @@ export const DIAL_EVENT_TYPES = [
 ] as const;
 
 export type DialEventType = (typeof DIAL_EVENT_TYPES)[number];
-
-export function isSessionStatus(value: string): value is SessionStatus {
-  return (SESSION_STATUSES as readonly string[]).includes(value);
-}
-
-export function isContactStatus(value: string): value is ContactStatus {
-  return (CONTACT_STATUSES as readonly string[]).includes(value);
-}
 
 export function isCallAttemptStatus(value: string): value is CallAttemptStatus {
   return (CALL_ATTEMPT_STATUSES as readonly string[]).includes(value);

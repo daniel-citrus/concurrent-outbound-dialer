@@ -7,6 +7,7 @@ import { cancelActionForStatus, isTerminalCallAttemptStatus } from "../domain/st
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
 import { EventRepository } from "../repositories/event.repository.js";
+import { releasePermitDurable } from "./permit-release.js";
 
 export class CallCanceler {
   constructor(
@@ -61,7 +62,7 @@ export class CallCanceler {
           await contacts.updateStatus(attempt.contactId, "canceled", {
             completedAt: new Date(),
           });
-          await this.releasePermitIdempotent(attempt.id, controller);
+          await releasePermitDurable(this.db, controller, attempt.id);
           await events.append({
             sessionId: attempt.sessionId,
             callAttemptId: attempt.id,
@@ -93,7 +94,7 @@ export class CallCanceler {
               completedAt: new Date(),
             });
           }
-          await this.releasePermitIdempotent(attempt.id, controller);
+          await releasePermitDurable(this.db, controller, attempt.id);
           await events.append({
             sessionId: attempt.sessionId,
             callAttemptId: attempt.id,
@@ -121,20 +122,6 @@ export class CallCanceler {
           providerCallId: attempt.providerCallId,
         },
       });
-    }
-  }
-
-  private async releasePermitIdempotent(
-    callAttemptId: string,
-    controller: ReturnType<SessionManager["get"]>,
-  ): Promise<void> {
-    const attempts = new CallAttemptRepository(this.db);
-    const marked = await attempts.markPermitReleased(callAttemptId);
-    if (marked && controller) {
-      controller.releasePermit(callAttemptId);
-    } else if (controller) {
-      // Already released in DB; still clear local state if present.
-      controller.releasePermit(callAttemptId);
     }
   }
 }

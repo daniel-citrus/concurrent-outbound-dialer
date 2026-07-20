@@ -1,6 +1,5 @@
 import { loadEnv } from "./config/env.js";
 import { buildApp } from "./app.js";
-import { closePool } from "./database/pool.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -16,15 +15,10 @@ async function main(): Promise<void> {
     app.services.orchestrator.stopAcceptingWork();
 
     try {
+      // Closes HTTP server and runs onClose hooks (including owned DB pool).
       await app.close();
     } catch (error) {
       app.log.error({ err: error }, "error closing http server");
-    }
-
-    try {
-      await closePool();
-    } catch (error) {
-      app.log.error({ err: error }, "error closing database pool");
     }
 
     app.log.info("graceful shutdown complete");

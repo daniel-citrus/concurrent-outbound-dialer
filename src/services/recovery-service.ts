@@ -6,7 +6,7 @@ import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { CallCanceler } from "./call-canceler.js";
 import type { SessionService } from "./session-service.js";
 import { isTerminalCallAttemptStatus } from "../domain/statuses.js";
-import { tryCompleteSessionIfExhausted } from "./session-completion.js";
+import { tryCompleteOrAutoContinue } from "./session-completion.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
@@ -73,21 +73,14 @@ export class RecoveryService {
             isTerminalCallAttemptStatus(winningCall.status) &&
             active === 0
           ) {
-            const completed = await tryCompleteSessionIfExhausted(
-              this.db,
-              this.sessionManager,
-              session.id,
-            );
-            if (!completed && session.autoContinue && this.sessionService) {
-              try {
-                await this.sessionService.continueDialing(session.id, "auto");
-              } catch (error) {
-                this.logger.warn(
-                  { err: error, sessionId: session.id },
-                  "recovery auto-continue skipped",
-                );
-              }
-            }
+            await tryCompleteOrAutoContinue(this.db, this.sessionManager, session.id, {
+              autoContinue: session.autoContinue,
+              continueDialing: this.sessionService
+                ? (id, reason) => this.sessionService!.continueDialing(id, reason)
+                : null,
+              logger: this.logger,
+              warnMessage: "recovery auto-continue skipped",
+            });
           }
         }
       } else if (session.status === "stopping") {

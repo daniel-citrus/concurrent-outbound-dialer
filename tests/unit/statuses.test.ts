@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_CALL_ATTEMPT_STATUSES,
   calculateLaunchCount,
   cancelActionForStatus,
   canContinueSession,
@@ -10,6 +11,7 @@ import {
   evaluateCallAttemptTransition,
   isActiveCallAttemptStatus,
   isTerminalCallAttemptStatus,
+  SIMULATABLE_CALL_STATUSES,
 } from "../../src/domain/statuses.js";
 
 describe("session transitions", () => {
@@ -72,6 +74,34 @@ describe("call attempt transitions", () => {
 
   it("rejects terminal to different terminal", () => {
     expect(evaluateCallAttemptTransition("busy", "failed").kind).toBe("reject");
+  });
+});
+
+describe("status list contracts mirrored by the frontend", () => {
+  it("keeps active call statuses stable for the visualizer", () => {
+    expect([...ACTIVE_CALL_ATTEMPT_STATUSES]).toEqual([
+      "creating",
+      "queued",
+      "initiated",
+      "ringing",
+      "in_progress",
+    ]);
+  });
+
+  it("includes unknown among simulatable statuses", () => {
+    expect(SIMULATABLE_CALL_STATUSES).toContain("unknown");
+    expect([...SIMULATABLE_CALL_STATUSES]).toEqual([
+      "queued",
+      "initiated",
+      "ringing",
+      "in_progress",
+      "completed",
+      "busy",
+      "failed",
+      "no_answer",
+      "canceled",
+      "unknown",
+    ]);
   });
 });
 

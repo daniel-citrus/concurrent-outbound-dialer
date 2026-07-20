@@ -56,6 +56,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           : undefined,
     });
 
+  const ownsDb = !options.db;
   const db = options.db ?? createPool(env.DATABASE_URL);
 
   const autoSimulator = env.MOCK_AUTO_SIMULATE
@@ -181,6 +182,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.addHook("onClose", async () => {
     activeAutoSimulator?.stopAll();
+    if (ownsDb) {
+      await db.end();
+    }
   });
 
   return app;

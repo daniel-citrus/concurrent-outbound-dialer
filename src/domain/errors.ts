@@ -2,12 +2,10 @@ export type ErrorCode =
   | "SESSION_NOT_FOUND"
   | "CALL_ATTEMPT_NOT_FOUND"
   | "INVALID_SESSION_TRANSITION"
-  | "INVALID_CALL_TRANSITION"
   | "DUPLICATE_ACTIVE_CLIENT_SESSION"
   | "INVALID_CONTACT_INPUT"
   | "PROVIDER_FAILURE"
   | "DATABASE_CONFLICT"
-  | "CONCURRENCY_CONFLICT"
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
@@ -50,10 +48,6 @@ export function invalidSessionTransition(message: string): DomainError {
   return new DomainError("INVALID_SESSION_TRANSITION", message, 409);
 }
 
-export function invalidCallTransition(message: string): DomainError {
-  return new DomainError("INVALID_CALL_TRANSITION", message, 409);
-}
-
 export function duplicateActiveClientSession(clientId: string): DomainError {
   return new DomainError(
     "DUPLICATE_ACTIVE_CLIENT_SESSION",
@@ -73,10 +67,6 @@ export function providerFailure(message: string): DomainError {
 
 export function databaseConflict(message: string): DomainError {
   return new DomainError("DATABASE_CONFLICT", message, 409);
-}
-
-export function concurrencyConflict(message: string): DomainError {
-  return new DomainError("CONCURRENCY_CONFLICT", message, 409);
 }
 
 export function validationError(message: string): DomainError {

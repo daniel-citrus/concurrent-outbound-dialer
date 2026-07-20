@@ -16,13 +16,3 @@ export type DialingSession = {
   completedAt: Date | null;
   updatedAt: Date;
 };
-
-export type CreateSessionInput = {
-  clientId: string;
-  agentId: string;
-  concurrencyLimit: number;
-  contacts: Array<{
-    externalContactId: string;
-    phoneNumber: string;
-  }>;
-};

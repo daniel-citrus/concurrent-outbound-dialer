@@ -13,6 +13,8 @@ import {
   canStartSession,
   canStopSession,
   isTerminalCallAttemptStatus,
+  type CallAttemptStatus,
+  type SessionStatus,
 } from "../domain/statuses.js";
 import {
   callAttemptNotFound,
@@ -52,7 +54,7 @@ export type SessionStatusSnapshot = {
   sessionId: string;
   clientId: string;
   agentId: string;
-  status: string;
+  status: SessionStatus;
   concurrencyLimit: number;
   stateVersion: number;
   activeCallCount: number;
@@ -70,12 +72,12 @@ export type SessionRuntimeResource = {
   permitReleased: boolean;
   contactId: string | null;
   phoneNumber: string | null;
-  callStatus: string | null;
+  callStatus: CallAttemptStatus | null;
 };
 
 export type SessionRuntimeSnapshot = {
   sessionId: string;
-  sessionStatus: string;
+  sessionStatus: SessionStatus;
   concurrencyLimit: number;
   controllerPresent: boolean;
   semaphore: {

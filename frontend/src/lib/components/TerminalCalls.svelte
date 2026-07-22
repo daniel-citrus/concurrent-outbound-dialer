@@ -42,10 +42,16 @@
 					{:else}
 						{#each terminalCalls as call (call.id)}
 							{@const detail = store.getContactDetailByContactId(call.contactId)}
+							{@const contact = store.contacts.find((c) => c.id === call.contactId)}
 							{@const tone = callStatusTone(call.status, { isWinner: call.isWinner })}
+							{@const name =
+								(detail.name || "").trim() ||
+								contact?.externalContactId ||
+								"Unknown contact"}
+							{@const company = (detail.company || "").trim() || "—"}
 							<Table.Row data-tone={tone}>
-								<Table.Cell class="font-semibold">{detail.name}</Table.Cell>
-								<Table.Cell>{detail.company}</Table.Cell>
+								<Table.Cell class="font-semibold">{name}</Table.Cell>
+								<Table.Cell>{company}</Table.Cell>
 								<Table.Cell class="status-cell capitalize" data-tone={tone}>
 									{call.isWinner && call.status === "completed"
 										? "winner"

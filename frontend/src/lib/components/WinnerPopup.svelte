@@ -35,6 +35,18 @@
 		winner ? store.contacts.find((c) => c.id === winner.contactId) : null,
 	);
 
+	const displayName = $derived(
+		(detail?.name || "").trim() ||
+			(contact?.externalContactId || "").trim() ||
+			"Unknown contact",
+	);
+
+	const displayPhone = $derived(
+		(contact?.phoneNumber || detail?.phoneNumber || "").trim() || "—",
+	);
+
+	const displayCompany = $derived((detail?.company || "").trim() || "—");
+
 	const canHangUp = $derived(!!winner && isActiveCall(winner.status));
 
 	async function hangUp() {
@@ -43,26 +55,27 @@
 	}
 </script>
 
+<!-- Keep Content mounted whenever open so bits-ui doesn't flash an empty shell. -->
 <Dialog.Root open={open} onOpenChange={() => {}}>
-	{#if open && winner}
-		<Dialog.Content
-			showCloseButton={false}
-			class="rounded-none border border-[color-mix(in_oklab,var(--status-win)_40%,transparent)] ring-0 sm:max-w-md"
-			interactOutsideBehavior="ignore"
-			escapeKeydownBehavior="ignore"
-		>
+	<Dialog.Content
+		showCloseButton={false}
+		class="rounded-none border border-[color-mix(in_oklab,var(--status-win)_40%,transparent)] ring-0 sm:max-w-md"
+		interactOutsideBehavior="ignore"
+		escapeKeydownBehavior="ignore"
+	>
+		{#if winner}
 			<p class="text-[0.72rem] font-bold tracking-[0.08em] text-[var(--status-win)] uppercase">
 				Connected
 			</p>
 			<Dialog.Title class="mt-1 text-[1.35rem] font-bold tracking-tight">
-				{detail?.name || "Unknown contact"}
+				{displayName}
 			</Dialog.Title>
 			<p class="mt-1 font-mono text-[1.05rem] font-semibold">
-				{contact?.phoneNumber || "—"}
+				{displayPhone}
 			</p>
 			<Dialog.Description class="text-muted-foreground mt-1 text-sm">
-				{detail?.company || "—"}
-				{#if detail?.title}
+				{displayCompany}
+				{#if detail?.title?.trim()}
 					· {detail.title}
 				{/if}
 			</Dialog.Description>
@@ -85,6 +98,6 @@
 					Hang up
 				</Button>
 			</Dialog.Footer>
-		</Dialog.Content>
-	{/if}
+		{/if}
+	</Dialog.Content>
 </Dialog.Root>

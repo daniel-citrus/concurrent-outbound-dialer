@@ -37,7 +37,7 @@ export class ContactRepository {
     sessionId: string,
     options: { limit?: number; offset?: number } = {},
   ): Promise<DialingContact[]> {
-    const limit = options.limit ?? 100;
+    const limit = options.limit ?? 10_000;
     const offset = options.offset ?? 0;
     const result = await this.db.query<ContactRow>(
       `SELECT * FROM dialing_contacts

@@ -64,11 +64,13 @@ export function createVisualizerStore() {
   async function refreshAll() {
     if (!session) return;
     const id = session.id;
+    // Backend defaults to 100; visualizer needs the full session batch.
+    const listOpts = { limit: 10_000 };
     try {
       const [nextSession, nextContacts, nextCalls, nextSnap, nextRuntime] = await Promise.all([
         dialerApi.getSession(id),
-        dialerApi.getContacts(id),
-        dialerApi.getCalls(id),
+        dialerApi.getContacts(id, listOpts),
+        dialerApi.getCalls(id, listOpts),
         dialerApi.getStatus(id),
         dialerApi.getRuntime(id),
       ]);

@@ -113,12 +113,26 @@ export const dialerApi = {
     return request(`/sessions/${sessionId}/runtime`);
   },
 
-  getContacts(sessionId: string): Promise<DialingContact[]> {
-    return request(`/sessions/${sessionId}/contacts`);
+  getContacts(
+    sessionId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<DialingContact[]> {
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.offset !== undefined) params.set("offset", String(options.offset));
+    const q = params.size > 0 ? `?${params}` : "";
+    return request(`/sessions/${sessionId}/contacts${q}`);
   },
 
-  getCalls(sessionId: string): Promise<CallAttempt[]> {
-    return request(`/sessions/${sessionId}/calls`);
+  getCalls(
+    sessionId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<CallAttempt[]> {
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.offset !== undefined) params.set("offset", String(options.offset));
+    const q = params.size > 0 ? `?${params}` : "";
+    return request(`/sessions/${sessionId}/calls${q}`);
   },
 
   start(sessionId: string): Promise<DialingSession> {

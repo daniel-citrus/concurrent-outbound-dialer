@@ -36,7 +36,7 @@ const e164Like = /^\+[1-9]\d{6,14}$/;
 const createSessionSchema = z.object({
   clientId: z.string().min(1),
   agentId: z.string().min(1),
-  concurrencyLimit: z.number().int().min(1).max(10),
+  concurrencyLimit: z.number().int().min(1).max(15),
   autoContinue: z.boolean().optional().default(true),
   contacts: z
     .array(

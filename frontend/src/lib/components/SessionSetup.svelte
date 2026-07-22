@@ -225,9 +225,9 @@
 
 				<div class="grid gap-1.5">
 					<Label class="text-muted-foreground text-[0.78rem] tracking-wide uppercase">
-						Concurrency (1–10)
+						Concurrency (1–15)
 					</Label>
-					<Input type="number" min="1" max="10" bind:value={concurrencyLimit} required />
+					<Input type="number" min="1" max="15" bind:value={concurrencyLimit} required />
 				</div>
 			</div>
 

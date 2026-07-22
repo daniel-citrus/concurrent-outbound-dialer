@@ -1,10 +1,14 @@
 <!-- Improved compatibility of back to top link: See: https://github.com/othneildrew/Best-README-Template/pull/73 -->
 <a id="readme-top"></a>
 
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
+<!-- PROJECT SHIELDS -->
+[![TypeScript][typescript-shield]][typescript-url]
+[![Node.js][nodejs-shield]][nodejs-url]
+[![Fastify][fastify-shield]][fastify-url]
+[![PostgreSQL][postgres-shield]][postgres-url]
+[![Svelte][svelte-shield]][svelte-url]
+[![Vite][vite-shield]][vite-url]
+[![Tailwind CSS][tailwind-shield]][tailwind-url]
 
 
 
@@ -16,10 +20,10 @@
   <p align="center">
     Standalone concurrent outbound dialer — one Node.js process, many independent dialing sessions, with a Svelte visualizer for mock-driven testing.
     <br />
-    <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer"><strong>Explore the docs »</strong></a>
+    <a href="./docs/ARCHITECTURE.md"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+    <a href="./docs/ARCHITECTURE.md">Architecture</a>
     &middot;
     <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer/issues/new?labels=bug">Report Bug</a>
     &middot;
@@ -132,13 +136,13 @@ Business logic stays provider-neutral (`provider_call_id`, not Twilio SIDs).
 
 ### Built With
 
-* [![TypeScript][TypeScript]][TypeScript-url]
-* [![Node.js][Node.js]][Node-url]
-* [![Fastify][Fastify]][Fastify-url]
-* [![PostgreSQL][PostgreSQL]][PostgreSQL-url]
-* [![Svelte][Svelte.dev]][Svelte-url]
-* [![Vite][Vite]][Vite-url]
-* [![Tailwind CSS][TailwindCSS]][Tailwind-url]
+* [![TypeScript][typescript-shield]][typescript-url]
+* [![Node.js][nodejs-shield]][nodejs-url]
+* [![Fastify][fastify-shield]][fastify-url]
+* [![PostgreSQL][postgres-shield]][postgres-url]
+* [![Svelte][svelte-shield]][svelte-url]
+* [![Vite][vite-shield]][vite-url]
+* [![Tailwind CSS][tailwind-shield]][tailwind-url]
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -371,25 +375,18 @@ Project Link: [https://github.com/daniel-citrus/concurrent-outbound-dialer](http
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
-[contributors-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
-[forks-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/network/members
-[stars-shield]: https://img.shields.io/github/stars/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
-[stars-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/stargazers
-[issues-shield]: https://img.shields.io/github/issues/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
-[issues-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/issues
-[TypeScript]: https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white
-[TypeScript-url]: https://www.typescriptlang.org/
-[Node.js]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
-[Node-url]: https://nodejs.org/
-[Fastify]: https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white
-[Fastify-url]: https://fastify.dev/
-[PostgreSQL]: https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white
-[PostgreSQL-url]: https://www.postgresql.org/
-[Svelte.dev]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
-[Svelte-url]: https://svelte.dev/
-[Vite]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
-[Vite-url]: https://vite.dev/
-[TailwindCSS]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white
-[Tailwind-url]: https://tailwindcss.com/
+<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
+[typescript-shield]: https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white
+[typescript-url]: https://www.typescriptlang.org/
+[nodejs-shield]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[nodejs-url]: https://nodejs.org/
+[fastify-shield]: https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white
+[fastify-url]: https://fastify.dev/
+[postgres-shield]: https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white
+[postgres-url]: https://www.postgresql.org/
+[svelte-shield]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
+[svelte-url]: https://svelte.dev/
+[vite-shield]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
+[vite-url]: https://vite.dev/
+[tailwind-shield]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white
+[tailwind-url]: https://tailwindcss.com/

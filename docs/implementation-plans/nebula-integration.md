@@ -11,6 +11,22 @@ Seamlessly integrate the concurrent outbound dialer service into Nebula so that:
 
 ---
 
+## Status update (2026-07-24)
+
+The core integration approach below is unchanged. Since the first draft, the **dialer visualizer** gained a reference call-card UI that de-risks the future Nebula popup work (still out of scope for the Nebula wiring itself):
+
+- **`frontend/src/lib/components/BrowserCallDialer.svelte`** — UI-only floating call card ported from Nebula. In the visualizer it is driven by `WinnerPopup.svelte` and shows **only the winning call** (session `winner_selected` + call still active). Actions are limited to Mute / Keypad / End Call / Cancel / Dismiss (no Listen-in, no Drop VM).
+- **Reusable helpers** under `frontend/src/lib/browser-call-dialer/`:
+  - `types.ts` — `CallStatus` shape
+  - `amdUi.ts` — AMD headline/subline/variant + human-first sort
+  - `callDisplay.ts` — status color/icon, duration, card position, status label
+  - `liveTranscriptSubscription.ts` — `configureLiveTranscriptClient()` accepts any broadcast client matching a small interface, so **Nebula can inject Supabase Realtime** without changing the component
+- **`frontend/src/lib/components/MinimizedTool.svelte`** — draggable, edge-snapping floating session control (Start / Pause / Resume / Stop / Close, glows green on live call, amber while dialing, shows remaining contacts). A UX pattern for a compact "session in progress" control, not required for Nebula.
+
+**Caveats for reuse:** the visualizer's `BrowserCallDialer` is now coupled to `VisualizerStore` (takes a `store` prop and derives the winner internally), so it is a **reference/pattern**, not a drop-in for Nebula. Nebula's own prop-based dialer (`activeCalls` map, dispatched events) remains the integration target when the popup phase begins. The extracted helpers and the pluggable transcript client are the directly reusable pieces.
+
+---
+
 ## Current state (mismatch)
 
 | Concern | Concurrent dialer today | Nebula today |
@@ -19,7 +35,7 @@ Seamlessly integrate the concurrent outbound dialer service into Nebula so that:
 | Placing calls | `VoiceProvider` (mock only) | Nebula `/api/call/initiate*` + Twilio Device |
 | Winner | Atomic DB `winner_selected` + cancel non-winners | “First human” / agent focus heuristics |
 | Identity | `clientId`, `agentId`, `externalContactId`, E.164 | Auth user, `contact_key`, prospect lists |
-| UI | Svelte visualizer (not for Nebula production) | Prospects / Action Required bulk call |
+| UI | Svelte visualizer (dialer-local) + reference call card / minimized tool | Prospects / Action Required bulk call |
 
 **Hard product decision:** who actually places the Twilio call? That choice drives the integration approach more than hosting does.
 
@@ -241,7 +257,7 @@ sequenceDiagram
 ## Explicitly out of scope
 
 - Nebula session / visualizer page
-- Floating call popup / `BrowserCallDialer` wiring
+- Floating call popup / `BrowserCallDialer` wiring **into Nebula** (a reference card now exists in the visualizer, but it is not wired to Nebula and is store-coupled — see Status update)
 - Porting Drop VM / Listen-in into dialer UI
 
 ---
@@ -294,4 +310,4 @@ Create body shape (zod):
 
 - Concrete API diff for Phase 1 (A+D): new dialer report-status / claim endpoints + Nebula BFF routes + which `ProspectsPage` bulk-queue functions to remove
 - Auth/tenancy design for `clientId` when multiple agents share a workspace
-- Call popup integration plan (separate doc, later)
+- Call popup integration plan (separate doc, later) — decide whether Nebula keeps its existing prop-based `BrowserCallDialer` or adopts the visualizer's helper modules (`amdUi`, `callDisplay`, `liveTranscriptSubscription`); the pluggable `configureLiveTranscriptClient()` is the intended seam for Supabase Realtime

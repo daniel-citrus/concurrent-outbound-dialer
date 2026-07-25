@@ -21,6 +21,7 @@
 	import type { VisualizerStore } from "$lib/store.svelte";
 	import type { CallAttempt, CallAttemptStatus } from "$lib/types";
 	import { isActiveCall as isActiveAttemptStatus } from "$lib/types";
+	import { cn } from "$lib/utils";
 
 	let {
 		store,
@@ -489,10 +490,25 @@
 	$effect(() => {
 		void onSwitchCall;
 	});
+
+	const amdBadgeClass: Record<string, string> = {
+		human: "border-emerald-400/75 bg-emerald-500/30 text-emerald-100",
+		machine: "border-amber-500/55 bg-amber-500/15 text-amber-300",
+		fax: "border-red-500/50 bg-red-500/15 text-red-300",
+		unknown: "border-slate-400/50 text-slate-300",
+		pending: "border-indigo-500/45 bg-indigo-500/10 text-indigo-300",
+		greeting: "border-purple-500/50 bg-purple-500/15 text-purple-200",
+	};
 </script>
 
 {#if calls.length > 0}
-	<div class="call-dialer-container" class:extension-mode={extensionMode}>
+	<div
+		class={cn(
+			"pointer-events-none fixed inset-0 z-[10000]",
+			extensionMode && "pointer-events-auto max-h-screen overflow-y-auto p-2",
+			"max-md:pointer-events-auto max-md:top-auto max-md:bottom-0 max-md:flex max-md:max-h-[70vh] max-md:flex-col max-md:gap-2 max-md:overflow-y-auto max-md:bg-black/50 max-md:p-2",
+		)}
+	>
 		{#each sortedCallsArray as call, index (call.callSid)}
 			{@const position = getCardPosition(index)}
 			{@const statusColor = getStatusColor(call.status)}
@@ -505,77 +521,91 @@
 				pstnJoinedAt: call.pstnJoinedAt ?? null,
 			})}
 			{@const isHumanLive = call.answeredBy === "human" && !TERMINAL_CALL_STATUSES.has(call.status)}
+			{@const isRinging = call.status === "ringing" || call.status === "answered"}
+			{@const isConnected = call.status === "connected"}
+			{@const isWaiting = !isActive && isConnected}
 			{@const transcriptLines = liveTranscripts.get(call.callSid) || []}
 			<div
-				class="call-card"
-				class:ringing={call.status === "ringing" || call.status === "answered"}
-				class:connected={call.status === "connected"}
-				class:ended={TERMINAL_CALL_STATUSES.has(call.status)}
-				class:active-call={isActive && call.status === "connected"}
-				class:waiting-call={!isActive && call.status === "connected"}
-				class:human-live={isHumanLive}
+				class={cn(
+					"animate-dialer-slide-in pointer-events-auto fixed z-[10001] w-80 cursor-pointer rounded-xl border border-[#444] border-l-4 bg-gradient-to-br from-[#1a1a1a] to-[#2d2d2d] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)]",
+					extensionMode &&
+						"relative top-auto right-auto bottom-auto left-auto w-full",
+					"max-md:relative max-md:top-auto! max-md:right-auto! max-md:bottom-auto! max-md:left-auto! max-md:w-full",
+					isRinging && "animate-dialer-ring-pulse",
+					isActive &&
+						isConnected &&
+						"shadow-[0_10px_30px_rgba(16,185,129,0.3),0_0_0_2px_rgba(16,185,129,0.5)]",
+					isWaiting && !isHumanLive && "opacity-85",
+					isHumanLive &&
+						"border-emerald-400/50 shadow-[0_12px_40px_rgba(52,211,153,0.32),0_0_0_2px_rgba(52,211,153,0.45)]",
+					isHumanLive && isWaiting && "opacity-100",
+				)}
 				role="button"
 				tabindex="0"
 				onclick={(e) => onCardClick(e, call)}
 				onkeydown={(e) => onCardKeydown(e, call)}
 				style="
-					top: {position.top};
-					right: {position.right};
-					left: {position.left};
-					bottom: {position.bottom};
+					top: {extensionMode ? 'auto' : position.top};
+					right: {extensionMode ? 'auto' : position.right};
+					left: {extensionMode ? 'auto' : position.left};
+					bottom: {extensionMode ? 'auto' : position.bottom};
 					border-left-color: {isHumanLive
 					? '#34d399'
-					: isActive && call.status === 'connected'
+					: isActive && isConnected
 						? '#10b981'
 						: statusColor};
 				"
 			>
 				{#if isHumanLive}
-					<div class="human-live-banner" aria-live="polite">
-						<span class="human-live-emoji" aria-hidden="true">👤</span>
-						<span class="human-live-banner-text">Live person on this call</span>
+					<div
+						class="-mx-4 -mt-4 mb-3 flex items-center gap-2.5 rounded-t-[11px] border-b border-emerald-400/50 bg-gradient-to-r from-emerald-500/40 to-emerald-400/20 px-3.5 py-2.5"
+						aria-live="polite"
+					>
+						<span class="text-[22px] leading-none" aria-hidden="true">👤</span>
+						<span class="text-[13px] font-bold tracking-wide text-emerald-50 uppercase">
+							Live person on this call
+						</span>
 					</div>
 				{/if}
 
-				<div class="call-card-header">
+				<div class="mb-3 flex items-start gap-3">
 					<div
-						class="call-status-indicator"
+						class="flex size-10 shrink-0 items-center justify-center rounded-full border-2"
 						style="background-color: {statusColor}20; border-color: {statusColor};"
 					>
-						<span class="status-icon">{getStatusIcon(call.status)}</span>
+						<span class="text-lg">{getStatusIcon(call.status)}</span>
 					</div>
-					<div class="call-contact-info">
-						<div class="call-contact-name">{call.contact.name}</div>
-						<div class="call-contact-details">
+					<div class="min-w-0 flex-1">
+						<div class="mb-1 truncate text-base font-semibold text-white">
+							{call.contact.name}
+						</div>
+						<div class="flex flex-wrap gap-1.5 text-xs text-[#999]">
 							<span>{call.contact.company}</span>
 							{#if call.contact.phone}
 								<span>•</span>
 								<span>{call.contact.phone}</span>
 							{/if}
 						</div>
-						<div class="amd-badge-row">
+						<div class="mt-2 flex flex-col items-start gap-1">
 							<span
-								class="amd-badge"
-								class:amd-human={amdLive.variant === "human"}
-								class:amd-machine={amdLive.variant === "machine"}
-								class:amd-fax={amdLive.variant === "fax"}
-								class:amd-unknown={amdLive.variant === "unknown"}
-								class:amd-pending={amdLive.variant === "pending"}
-								class:amd-greeting={amdLive.variant === "greeting"}
+								class={cn(
+									"inline-block max-w-full rounded-md border border-[#444] bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-[#e5e5e5]",
+									amdBadgeClass[amdLive.variant],
+								)}
 							>
 								{#if amdLive.variant === "human"}
-									<span class="amd-human-emoji" aria-hidden="true">👤</span>
+									<span class="mr-1.5 text-[13px]" aria-hidden="true">👤</span>
 								{/if}
 								{amdLive.headline}
 							</span>
 							{#if amdLive.subline}
-								<span class="amd-hint">{amdLive.subline}</span>
+								<span class="text-[10px] leading-snug text-[#888]">{amdLive.subline}</span>
 							{/if}
 						</div>
 					</div>
 					{#if !TERMINAL_CALL_STATUSES.has(call.status)}
 						<button
-							class="call-card-close"
+							class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded border border-[#444] bg-white/10 text-sm text-[#ccc] hover:border-red-500 hover:bg-red-500/20 hover:text-red-500"
 							type="button"
 							title="Cancel call"
 							onclick={(e) => {
@@ -588,25 +618,35 @@
 					{/if}
 				</div>
 
-				<div class="call-card-body">
-					<div class="call-status-text">{statusLabel(call, isActive)}</div>
+				<div class="mb-3">
+					<div class="mb-2 text-sm font-medium text-[#ccc]">{statusLabel(call, isActive)}</div>
 
-					{#if call.status === "connected"}
+					{#if isConnected}
 						{@const level = getAudioLevel(call.callSid)}
 						{@const bars = getEqualizerBars(level)}
+						{@const meterMuted = !isActive || mutedCalls.has(call.callSid)}
 						<div
-							class="audio-visualizer"
-							class:active={isActive && !mutedCalls.has(call.callSid)}
-							class:muted={!isActive || mutedCalls.has(call.callSid)}
+							class={cn(
+								"my-2 flex h-8 items-end gap-0.5 rounded-md bg-black/30 px-2.5 py-1.5",
+								!meterMuted && "border border-emerald-500/30 bg-emerald-500/15",
+								meterMuted && "border border-amber-500/20 bg-amber-500/10",
+							)}
 						>
 							{#each bars as barHeight, i}
 								<div
-									class="eq-bar"
-									class:speaking={level > 10}
+									class={cn(
+										"min-h-1 w-1 rounded-sm bg-gradient-to-t from-emerald-500 to-emerald-400 transition-[height] duration-100",
+										meterMuted && "bg-gradient-to-t from-amber-500 to-amber-300 opacity-50",
+									)}
 									style="height: {Math.max(4, barHeight * 0.4)}px; animation-delay: {i * 0.1}s;"
 								></div>
 							{/each}
-							<span class="audio-label">
+							<span
+								class={cn(
+									"ml-2 text-[11px] font-medium tracking-wide text-emerald-500 uppercase",
+									meterMuted && "text-amber-500",
+								)}
+							>
 								{#if mutedCalls.has(call.callSid)}
 									Muted
 								{:else if isActive}
@@ -618,22 +658,31 @@
 						</div>
 					{/if}
 
-					{#if call.status === "connected" && call.duration !== undefined}
-						<div class="call-duration">Duration: {formatDuration(call.duration)}</div>
+					{#if isConnected && call.duration !== undefined}
+						<div class="font-mono text-xs text-[#888]">
+							Duration: {formatDuration(call.duration)}
+						</div>
 					{/if}
 				</div>
 
 				{#if transcriptLines.length > 0}
-					<div class="live-transcript-strip" use:bindTranscriptRef={call.callSid}>
-						<div class="live-transcript-fade-top"></div>
+					<div
+						class="relative mb-2.5 max-h-[120px] overflow-y-auto rounded-md bg-black/40 px-2.5 py-2 font-mono text-[11px] leading-normal"
+						use:bindTranscriptRef={call.callSid}
+					>
+						<div
+							class="pointer-events-none sticky top-0 -mx-2.5 -mt-2 h-3 bg-gradient-to-b from-black/40 to-transparent"
+						></div>
 						{#each transcriptLines.slice(-8) as line, i (
 							line.isFinal ? `f-${line.seq}-${line.track}` : `p-${i}-${line.track}`
 						)}
-							<div class="live-transcript-line" class:is-partial={!line.isFinal}>
+							<div class={cn("mb-0.5 last:mb-0", !line.isFinal && "italic opacity-55")}>
 								<span
-									class="live-transcript-speaker"
-									class:speaker-prospect={line.track === "prospect"}
-									class:speaker-agent={line.track === "agent"}
+									class={cn(
+										"mr-1.5 text-[10px] font-bold uppercase",
+										line.track === "prospect" && "text-blue-300",
+										line.track === "agent" && "text-green-300",
+									)}
 								>
 									{line.track === "prospect"
 										? "Prospect"
@@ -641,25 +690,29 @@
 											? "Agent"
 											: "???"}
 								</span>
-								<span class="live-transcript-text">{line.text}</span>
+								<span class="text-neutral-300">{line.text}</span>
 							</div>
 						{/each}
 					</div>
 				{/if}
 
 				{#if LIVE_CALL_STATUSES.has(call.status)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 					<div
-						class="call-card-actions"
+						class="flex gap-2"
 						role="group"
 						onclick={(e) => e.stopPropagation()}
 						onkeydown={(e) => e.stopPropagation()}
 					>
-						<div class="call-actions-row">
-							{#if isActive && call.status === "connected"}
+						<div class="flex w-full items-center gap-2">
+							{#if isActive && isConnected}
 								<button
 									type="button"
-									class="mute-toggle-btn"
-									class:muted={mutedCalls.has(call.callSid)}
+									class={cn(
+										"cursor-pointer rounded-md border border-slate-500 bg-slate-500/20 px-3 py-2 text-sm font-semibold text-slate-400",
+										mutedCalls.has(call.callSid) &&
+											"border-amber-500 bg-amber-500/20 text-amber-400",
+									)}
 									title={mutedCalls.has(call.callSid)
 										? "Unmute microphone"
 										: "Mute microphone"}
@@ -671,8 +724,11 @@
 							{#if isActive}
 								<button
 									type="button"
-									class="keypad-toggle-btn"
-									class:expanded={keypadExpandedCallSid === call.callSid}
+									class={cn(
+										"cursor-pointer rounded-md border border-slate-500 bg-slate-500/20 px-3 py-2 text-sm font-semibold text-slate-400",
+										keypadExpandedCallSid === call.callSid &&
+											"border-slate-400 bg-slate-500/35 text-slate-200",
+									)}
 									title="Keypad for IVR / tree menus"
 									onclick={() => toggleKeypad(call.callSid)}
 								>
@@ -681,26 +737,25 @@
 							{/if}
 							<button
 								type="button"
-								class="end-call-btn"
+								class="flex-1 cursor-pointer rounded-md border border-red-500 bg-red-500/20 px-4 py-2 text-sm font-semibold text-red-500"
 								onclick={() =>
-									call.status === "connected"
-										? endCall(call.callSid)
-										: cancelCall(call.callSid)}
+									isConnected ? endCall(call.callSid) : cancelCall(call.callSid)}
 							>
-								{call.status === "connected" ? "End Call" : "Cancel"}
+								{isConnected ? "End Call" : "Cancel"}
 							</button>
 						</div>
 					</div>
 				{:else if TERMINAL_CALL_STATUSES.has(call.status)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 					<div
-						class="call-card-actions"
+						class="flex gap-2"
 						role="group"
 						onclick={(e) => e.stopPropagation()}
 						onkeydown={(e) => e.stopPropagation()}
 					>
 						<button
 							type="button"
-							class="end-call-btn dismiss-btn"
+							class="flex-1 cursor-pointer rounded-md border border-[#666] bg-neutral-500/20 px-4 py-2 text-sm font-semibold text-[#999]"
 							onclick={() => dismissCall(call.callSid)}
 						>
 							Dismiss
@@ -709,27 +764,32 @@
 				{/if}
 
 				{#if keypadExpandedCallSid === call.callSid && isActive}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 					<div
-						class="keypad"
+						class="mt-3 grid gap-1.5"
 						role="group"
 						aria-label="DTMF keypad"
 						onclick={(e) => e.stopPropagation()}
 						onkeydown={(e) => e.stopPropagation()}
 					>
 						{#each [0, 1, 2, 3] as row}
-							<div class="keypad-row">
+							<div class="grid grid-cols-3 gap-1.5">
 								{#each KEYPAD_KEYS.slice(row * 3, row * 3 + 3) as key}
-									<button type="button" onclick={() => sendDtmf(key.digit)}>
-										<span class="keypad-num">{key.digit}</span>
+									<button
+										type="button"
+										class="flex cursor-pointer flex-col items-center gap-0.5 rounded-lg border border-gray-700 bg-gray-800 py-1.5 font-semibold text-white hover:border-gray-600 hover:bg-gray-900"
+										onclick={() => sendDtmf(key.digit)}
+									>
+										<span class="text-base leading-none">{key.digit}</span>
 										{#if key.letters}
-											<span class="keypad-letters">{key.letters}</span>
+											<span class="text-[8px] text-gray-400">{key.letters}</span>
 										{/if}
 									</button>
 								{/each}
 							</div>
 						{/each}
 						{#if keypadDigits}
-							<div class="keypad-status">Sent: {keypadDigits}</div>
+							<div class="text-xs text-gray-400">Sent: {keypadDigits}</div>
 						{/if}
 					</div>
 				{/if}
@@ -737,484 +797,3 @@
 		{/each}
 	</div>
 {/if}
-
-<style>
-	.call-dialer-container {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		pointer-events: none;
-		z-index: 10000;
-	}
-
-	.call-card {
-		position: fixed;
-		width: 320px;
-		background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
-		border: 1px solid #444;
-		border-left: 4px solid #6366f1;
-		border-radius: 12px;
-		padding: 16px;
-		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-		pointer-events: all;
-		cursor: pointer;
-		animation: slideIn 0.3s ease-out;
-		z-index: 10001;
-	}
-
-	@keyframes slideIn {
-		from {
-			opacity: 0;
-			transform: translateY(-20px) scale(0.95);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0) scale(1);
-		}
-	}
-
-	.call-card.ringing {
-		animation: pulse 2s infinite;
-		border-left-color: #f59e0b;
-	}
-
-	.call-card.connected {
-		border-left-color: #10b981;
-	}
-
-	.call-card.active-call {
-		border-left-color: #10b981;
-		box-shadow:
-			0 10px 30px rgba(16, 185, 129, 0.3),
-			0 0 0 2px rgba(16, 185, 129, 0.5);
-	}
-
-	.call-card.waiting-call {
-		border-left-color: #f59e0b;
-		opacity: 0.85;
-	}
-
-	.call-card.human-live {
-		border-color: rgba(52, 211, 153, 0.5);
-		box-shadow:
-			0 12px 40px rgba(52, 211, 153, 0.32),
-			0 0 0 2px rgba(52, 211, 153, 0.45);
-	}
-
-	.call-card.human-live.waiting-call {
-		opacity: 1;
-		border-left-color: #34d399;
-	}
-
-	.human-live-banner {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin: -16px -16px 12px -16px;
-		padding: 11px 14px;
-		background: linear-gradient(90deg, rgba(16, 185, 129, 0.42), rgba(52, 211, 153, 0.2));
-		border-bottom: 1px solid rgba(52, 211, 153, 0.5);
-		border-radius: 11px 11px 0 0;
-	}
-
-	.human-live-emoji {
-		font-size: 22px;
-		line-height: 1;
-	}
-
-	.human-live-banner-text {
-		font-size: 13px;
-		font-weight: 700;
-		color: #ecfdf5;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-	}
-
-	.amd-human-emoji {
-		margin-right: 6px;
-		font-size: 13px;
-	}
-
-	@keyframes pulse {
-		0%,
-		100% {
-			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-		}
-		50% {
-			box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4);
-		}
-	}
-
-	.call-card-header {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		margin-bottom: 12px;
-	}
-
-	.call-status-indicator {
-		width: 40px;
-		height: 40px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border: 2px solid;
-		flex-shrink: 0;
-	}
-
-	.status-icon {
-		font-size: 18px;
-	}
-
-	.call-contact-info {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.call-contact-name {
-		font-weight: 600;
-		font-size: 16px;
-		color: #fff;
-		margin-bottom: 4px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.call-contact-details {
-		font-size: 12px;
-		color: #999;
-		display: flex;
-		gap: 6px;
-		flex-wrap: wrap;
-	}
-
-	.amd-badge-row {
-		margin-top: 8px;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		align-items: flex-start;
-	}
-
-	.amd-badge {
-		display: inline-block;
-		font-size: 11px;
-		font-weight: 600;
-		padding: 3px 8px;
-		border-radius: 6px;
-		border: 1px solid #444;
-		color: #e5e5e5;
-		background: rgba(255, 255, 255, 0.06);
-		max-width: 100%;
-	}
-
-	.amd-badge.amd-human {
-		border-color: rgba(52, 211, 153, 0.75);
-		background: rgba(16, 185, 129, 0.28);
-		color: #d1fae5;
-	}
-
-	.amd-badge.amd-machine {
-		border-color: rgba(245, 158, 11, 0.55);
-		background: rgba(245, 158, 11, 0.12);
-		color: #fcd34d;
-	}
-
-	.amd-badge.amd-fax {
-		border-color: rgba(239, 68, 68, 0.5);
-		background: rgba(239, 68, 68, 0.12);
-		color: #fca5a5;
-	}
-
-	.amd-badge.amd-unknown {
-		border-color: rgba(148, 163, 184, 0.5);
-		color: #cbd5e1;
-	}
-
-	.amd-badge.amd-pending {
-		border-color: rgba(99, 102, 241, 0.45);
-		background: rgba(99, 102, 241, 0.1);
-		color: #a5b4fc;
-	}
-
-	.amd-badge.amd-greeting {
-		border-color: rgba(168, 85, 247, 0.5);
-		background: rgba(168, 85, 247, 0.12);
-		color: #e9d5ff;
-	}
-
-	.amd-hint {
-		font-size: 10px;
-		line-height: 1.35;
-		color: #888;
-	}
-
-	.call-card-close {
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid #444;
-		border-radius: 4px;
-		width: 24px;
-		height: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		color: #ccc;
-		font-size: 14px;
-		flex-shrink: 0;
-	}
-
-	.call-card-close:hover {
-		background: rgba(239, 68, 68, 0.2);
-		border-color: #ef4444;
-		color: #ef4444;
-	}
-
-	.call-card-body {
-		margin-bottom: 12px;
-	}
-
-	.call-status-text {
-		font-size: 14px;
-		color: #ccc;
-		margin-bottom: 8px;
-		font-weight: 500;
-	}
-
-	.call-duration {
-		font-size: 12px;
-		color: #888;
-		font-family: monospace;
-	}
-
-	.call-card-actions {
-		display: flex;
-		gap: 8px;
-	}
-
-	.call-actions-row {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		width: 100%;
-	}
-
-	.mute-toggle-btn,
-	.keypad-toggle-btn {
-		background: rgba(100, 116, 139, 0.2);
-		border: 1px solid #64748b;
-		border-radius: 6px;
-		padding: 8px 12px;
-		color: #94a3b8;
-		font-weight: 600;
-		cursor: pointer;
-		font-size: 14px;
-	}
-
-	.mute-toggle-btn.muted {
-		background: rgba(245, 158, 11, 0.2);
-		border-color: #f59e0b;
-		color: #fbbf24;
-	}
-
-	.keypad-toggle-btn.expanded {
-		background: rgba(100, 116, 139, 0.35);
-		border-color: #94a3b8;
-		color: #e2e8f0;
-	}
-
-	.end-call-btn {
-		flex: 1;
-		background: rgba(239, 68, 68, 0.2);
-		border: 1px solid #ef4444;
-		border-radius: 6px;
-		padding: 8px 16px;
-		color: #ef4444;
-		font-weight: 600;
-		cursor: pointer;
-		font-size: 14px;
-	}
-
-	.end-call-btn.dismiss-btn {
-		background: rgba(100, 100, 100, 0.2);
-		border-color: #666;
-		color: #999;
-	}
-
-	.audio-visualizer {
-		display: flex;
-		align-items: flex-end;
-		gap: 3px;
-		height: 32px;
-		padding: 6px 10px;
-		background: rgba(0, 0, 0, 0.3);
-		border-radius: 6px;
-		margin: 8px 0;
-	}
-
-	.audio-visualizer.active {
-		background: rgba(16, 185, 129, 0.15);
-		border: 1px solid rgba(16, 185, 129, 0.3);
-	}
-
-	.audio-visualizer.muted {
-		background: rgba(245, 158, 11, 0.1);
-		border: 1px solid rgba(245, 158, 11, 0.2);
-	}
-
-	.eq-bar {
-		width: 4px;
-		min-height: 4px;
-		border-radius: 2px;
-		background: linear-gradient(to top, #10b981, #34d399);
-		transition: height 0.1s ease-out;
-	}
-
-	.audio-visualizer.muted .eq-bar {
-		background: linear-gradient(to top, #f59e0b, #fbbf24);
-		opacity: 0.5;
-	}
-
-	.audio-label {
-		font-size: 11px;
-		color: #10b981;
-		margin-left: 8px;
-		font-weight: 500;
-		text-transform: uppercase;
-	}
-
-	.audio-visualizer.muted .audio-label {
-		color: #f59e0b;
-	}
-
-	.keypad {
-		margin-top: 12px;
-		display: grid;
-		gap: 6px;
-	}
-
-	.keypad-row {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 6px;
-	}
-
-	.keypad button {
-		background: #1f2937;
-		color: #fff;
-		border: 1px solid #374151;
-		border-radius: 8px;
-		padding: 6px 0;
-		font-weight: 600;
-		cursor: pointer;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 2px;
-	}
-
-	.keypad-num {
-		font-size: 16px;
-		line-height: 1;
-	}
-
-	.keypad-letters {
-		font-size: 8px;
-		color: #9ca3af;
-	}
-
-	.keypad-status {
-		font-size: 12px;
-		color: #9ca3af;
-	}
-
-	.live-transcript-strip {
-		position: relative;
-		max-height: 120px;
-		overflow-y: auto;
-		background: rgba(0, 0, 0, 0.4);
-		border-radius: 6px;
-		padding: 8px 10px;
-		margin-bottom: 10px;
-		font-family: ui-monospace, monospace;
-		font-size: 11px;
-		line-height: 1.5;
-	}
-
-	.live-transcript-fade-top {
-		position: sticky;
-		top: 0;
-		height: 12px;
-		margin: -8px -10px 0 -10px;
-		background: linear-gradient(to bottom, rgba(0, 0, 0, 0.4), transparent);
-		pointer-events: none;
-	}
-
-	.live-transcript-line.is-partial {
-		opacity: 0.55;
-		font-style: italic;
-	}
-
-	.live-transcript-speaker {
-		font-weight: 700;
-		font-size: 10px;
-		text-transform: uppercase;
-		margin-right: 6px;
-	}
-
-	.live-transcript-speaker.speaker-prospect {
-		color: #93c5fd;
-	}
-
-	.live-transcript-speaker.speaker-agent {
-		color: #86efac;
-	}
-
-	.live-transcript-text {
-		color: #d4d4d4;
-	}
-
-	.call-dialer-container.extension-mode {
-		padding: 8px;
-		pointer-events: all;
-		overflow-y: auto;
-		max-height: 100vh;
-	}
-
-	.call-dialer-container.extension-mode .call-card {
-		position: relative;
-		top: auto;
-		right: auto;
-		left: auto;
-		bottom: auto;
-		width: 100%;
-	}
-
-	@media (max-width: 768px) {
-		.call-dialer-container {
-			top: auto;
-			bottom: 0;
-			max-height: 70vh;
-			overflow-y: auto;
-			display: flex;
-			flex-direction: column;
-			gap: 8px;
-			padding: 8px;
-			pointer-events: all;
-			background: rgba(0, 0, 0, 0.5);
-		}
-
-		.call-card {
-			position: relative !important;
-			top: auto !important;
-			bottom: auto !important;
-			left: auto !important;
-			right: auto !important;
-			width: 100%;
-		}
-	}
-</style>

@@ -169,3 +169,73 @@
 		color: var(--status-fail);
 	}
 }
+
+/* Shared dialer animations (used by BrowserCallDialer + MinimizedTool) */
+@keyframes dialer-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(-20px) scale(0.95);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes dialer-ring-pulse {
+	0%,
+	100% {
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+	}
+	50% {
+		box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4);
+	}
+}
+
+@keyframes dialer-glow-green {
+	0%,
+	100% {
+		box-shadow:
+			0 8px 24px rgba(0, 0, 0, 0.45),
+			0 0 0 1px rgba(16, 185, 129, 0.5),
+			0 0 14px rgba(16, 185, 129, 0.4);
+	}
+	50% {
+		box-shadow:
+			0 8px 24px rgba(0, 0, 0, 0.45),
+			0 0 0 1px rgba(16, 185, 129, 0.7),
+			0 0 28px rgba(16, 185, 129, 0.7);
+	}
+}
+
+@keyframes dialer-glow-amber {
+	0%,
+	100% {
+		box-shadow:
+			0 8px 24px rgba(0, 0, 0, 0.45),
+			0 0 0 1px rgba(245, 158, 11, 0.5),
+			0 0 14px rgba(245, 158, 11, 0.4);
+	}
+	50% {
+		box-shadow:
+			0 8px 24px rgba(0, 0, 0, 0.45),
+			0 0 0 1px rgba(245, 158, 11, 0.75),
+			0 0 28px rgba(245, 158, 11, 0.75);
+	}
+}
+
+@utility animate-dialer-slide-in {
+	animation: dialer-slide-in 0.3s ease-out;
+}
+
+@utility animate-dialer-ring-pulse {
+	animation: dialer-ring-pulse 2s infinite;
+}
+
+@utility animate-dialer-glow-green {
+	animation: dialer-glow-green 1.8s ease-in-out infinite;
+}
+
+@utility animate-dialer-glow-amber {
+	animation: dialer-glow-amber 1.4s ease-in-out infinite;
+}

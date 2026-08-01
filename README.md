@@ -1,14 +1,9 @@
-<!-- Improved compatibility of back to top link: See: https://github.com/othneildrew/Best-README-Template/pull/73 -->
 <a id="readme-top"></a>
 
-<!-- PROJECT SHIELDS -->
-[![TypeScript][typescript-shield]][typescript-url]
-[![Node.js][nodejs-shield]][nodejs-url]
-[![Fastify][fastify-shield]][fastify-url]
-[![PostgreSQL][postgres-shield]][postgres-url]
-[![Svelte][svelte-shield]][svelte-url]
-[![Vite][vite-shield]][vite-url]
-[![Tailwind CSS][tailwind-shield]][tailwind-url]
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
 
 
 
@@ -18,12 +13,12 @@
   <h3 align="center">Concurrent Outbound Dialer</h3>
 
   <p align="center">
-    Standalone concurrent outbound dialer — one Node.js process, many independent dialing sessions, with a Svelte visualizer for mock-driven testing.
+    Standalone concurrent outbound dialer — thin Fastify + Postgres system of record, with a Svelte client orchestrator for mock-driven testing.
     <br />
-    <a href="./docs/ARCHITECTURE.md"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="./docs/ARCHITECTURE.md">Architecture</a>
+    <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer/blob/main/docs/ARCHITECTURE.md">Architecture</a>
     &middot;
     <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer/issues/new?labels=bug">Report Bug</a>
     &middot;
@@ -65,50 +60,47 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-One Node.js process hosts many independent dialing sessions. Each session has its own controller, semaphore, reconciliation mutex, contact batch, and active-call map.
+Thin Fastify + PostgreSQL system of record; the **browser client** owns reconciliation, admission control, and dial placement. Atomic claim, winner selection, and status validation stay on the server.
 
-PostgreSQL is the durable source of truth for sessions, ordered contacts, call attempts, and append-only events. In-memory `async-mutex` semaphores provide per-session admission control inside a single process. A Svelte visualizer drives the mock voice provider for local testing.
+PostgreSQL is the durable source of truth for sessions, ordered contacts, call attempts, and append-only events. The Svelte visualizer runs a client orchestrator with a per-session semaphore and reconciliation mutex for local mock testing.
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for Mermaid diagrams.
 
 ### Architecture Overview
 
 ```text
-Dialer Service
-└── SessionManager (Map<sessionId, SessionController>)
-    ├── Session A Controller — Semaphore(4), Mutex, active calls, batch
-    ├── Session B Controller — Semaphore(3), Mutex, active calls, batch
-    └── ...
+Browser (Visualizer)
+└── ClientSessionOrchestrator
+    └── ClientSessionController — Semaphore(N), Mutex, active calls
+         ├── claim / created / report-status → Thin Fastify API → Postgres
+         └── CallPlacer (mock today; Twilio Device later)
+
+Fastify (system of record)
+└── claim, lifecycle, status, winner, cancel
 ```
 
-**Session controller**
+**Client orchestrator**
 
-- Created lazily via `SessionManager.getOrCreate(sessionId)` from persisted session state
-- Restored with one semaphore permit per persisted active/reserved attempt
-- Not removed when an agent stops polling
-- Removed only when the session is `stopped` / `completed` / `failed`, no active calls remain, no permits are held, and reconciliation is idle
+- Runs in the visualizer tab (one tab ≈ one session worker)
+- `scheduleReconcile` after start / resume / continue and when `report-status` returns `triggeredReconcile`
+- Hydrates from active attempts on reload when the session is still `running`
 
-**Session manager**
-
-Singleton `InMemorySessionManager` keyed by `sessionId`. Concurrent `getOrCreate` calls for the same id share one initialization promise so only one controller is created.
-
-**Semaphore**
+**Semaphore (client)**
 
 - Capacity equals `concurrency_limit` (1–15)
-- Acquire before calling the voice provider; hold through `creating` → `in_progress`
-- Release on terminal outcomes or creation failure (idempotent via `permit_released` + local flag)
+- Acquire before placing a call; hold through `creating` → `in_progress`
+- Release on terminal outcomes or creation failure
 - Do not queue all remaining contacts as waiters — DB retains queued contacts until capacity opens
 
-**Mutex**
+**Mutex (client)**
 
-Each controller has a reconciliation mutex. It serializes short DB work (load state, count actives, claim contacts, reserve attempts). It is **not** held while ringing, waiting for callbacks, or calling the provider.
+Serializes short claim work (load state, capacity math, `POST /claim`). It is **not** held while ringing or placing a call.
 
 **PostgreSQL**
 
 - Durable contact queue with `FOR UPDATE SKIP LOCKED` claiming
 - Atomic winner selection (`UPDATE … WHERE status = 'running' AND winning_call_attempt_id IS NULL`)
 - Partial unique index: one active session per `client_id`
-- Partial unique index: one winner per session
 - Append-only `dial_events` history
 
 | Table | Purpose |
@@ -118,17 +110,9 @@ Each controller has a reconciliation mutex. It serializes short DB work (load st
 | `call_attempts` | Reserved/active attempts + `permit_released` |
 | `dial_events` | Lifecycle / diagnostic events |
 
-**Provider abstraction**
+**Call placement**
 
-```ts
-interface VoiceProvider {
-  createCall(input): Promise<{ providerCallId; status: "queued" }>
-  cancelCall(providerCallId): Promise<void>
-  disconnectCall(providerCallId): Promise<void>
-}
-```
-
-Business logic stays provider-neutral (`provider_call_id`, not Twilio SIDs).
+Injectable `CallPlacer` on the client (mock provider IDs in the visualizer). Server `VoiceProvider` remains for cancel/disconnect and the integration-test harness.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -136,13 +120,13 @@ Business logic stays provider-neutral (`provider_call_id`, not Twilio SIDs).
 
 ### Built With
 
-* [![TypeScript][typescript-shield]][typescript-url]
-* [![Node.js][nodejs-shield]][nodejs-url]
-* [![Fastify][fastify-shield]][fastify-url]
-* [![PostgreSQL][postgres-shield]][postgres-url]
-* [![Svelte][svelte-shield]][svelte-url]
-* [![Vite][vite-shield]][vite-url]
-* [![Tailwind CSS][tailwind-shield]][tailwind-url]
+* [![TypeScript][TypeScript]][TypeScript-url]
+* [![Node.js][Node.js]][Node-url]
+* [![Fastify][Fastify]][Fastify-url]
+* [![PostgreSQL][PostgreSQL]][PostgreSQL-url]
+* [![Svelte][Svelte.dev]][Svelte-url]
+* [![Vite][Vite]][Vite-url]
+* [![Tailwind CSS][TailwindCSS]][Tailwind-url]
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -290,15 +274,20 @@ Optional auth: set `SERVICE_API_KEY` and send `Authorization: Bearer <key>` (hea
 | `POST` | `/sessions` | Create session + contacts |
 | `GET` | `/sessions/:id` | Session row |
 | `GET` | `/sessions/:id/status` | Poll snapshot; `?afterVersion=` → `204` if unchanged |
+| `GET` | `/sessions/:id/reconcile-hint` | Session status + persisted active/queued counts |
 | `GET` | `/sessions/:id/contacts` | Paginated contacts |
 | `GET` | `/sessions/:id/calls` | Paginated attempts |
 | `GET` | `/sessions/:id/events` | Paginated events |
-| `POST` | `/sessions/:id/start` | Start dialing, resume from paused, or continue after winner |
+| `POST` | `/sessions/:id/start` | Mark `running` / continue after winner (client schedules reconcile) |
+| `POST` | `/sessions/:id/claim` | Atomically claim contacts (`{ "limit": n }`) |
 | `PATCH` | `/sessions/:id/auto-continue` | Toggle `{ "autoContinue": true \| false }` mid-session |
 | `POST` | `/sessions/:id/pause` | Stop launches; cancel actives |
-| `POST` | `/sessions/:id/resume` | Resume from paused |
+| `POST` | `/sessions/:id/resume` | Resume from paused (client schedules reconcile) |
 | `POST` | `/sessions/:id/stop` | Idempotent stop |
-| `POST` | `/calls/:callAttemptId/simulate` | Mock status events |
+| `POST` | `/calls/:callAttemptId/report-status` | Validated status + winner/complete; may set `triggeredReconcile` |
+| `POST` | `/calls/:callAttemptId/created` | After client dial: `creating` → `queued` |
+| `POST` | `/calls/:callAttemptId/creation-failed` | Mark failed + release durable permit |
+| `POST` | `/calls/:callAttemptId/simulate` | Alias of `report-status` |
 | `GET` | `/mock/auto-simulate` | Auto-simulate availability, enabled flag, and config |
 | `PATCH` | `/mock/auto-simulate` | Pause/resume, reset defaults, or patch config |
 
@@ -375,18 +364,25 @@ Project Link: [https://github.com/daniel-citrus/concurrent-outbound-dialer](http
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[typescript-shield]: https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white
-[typescript-url]: https://www.typescriptlang.org/
-[nodejs-shield]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
-[nodejs-url]: https://nodejs.org/
-[fastify-shield]: https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white
-[fastify-url]: https://fastify.dev/
-[postgres-shield]: https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white
-[postgres-url]: https://www.postgresql.org/
-[svelte-shield]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
-[svelte-url]: https://svelte.dev/
-[vite-shield]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
-[vite-url]: https://vite.dev/
-[tailwind-shield]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white
-[tailwind-url]: https://tailwindcss.com/
+[contributors-shield]: https://img.shields.io/github/contributors/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
+[contributors-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
+[forks-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/network/members
+[stars-shield]: https://img.shields.io/github/stars/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
+[stars-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/stargazers
+[issues-shield]: https://img.shields.io/github/issues/daniel-citrus/concurrent-outbound-dialer.svg?style=for-the-badge
+[issues-url]: https://github.com/daniel-citrus/concurrent-outbound-dialer/issues
+[TypeScript]: https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white
+[TypeScript-url]: https://www.typescriptlang.org/
+[Node.js]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[Node-url]: https://nodejs.org/
+[Fastify]: https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white
+[Fastify-url]: https://fastify.dev/
+[PostgreSQL]: https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white
+[PostgreSQL-url]: https://www.postgresql.org/
+[Svelte.dev]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
+[Svelte-url]: https://svelte.dev/
+[Vite]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
+[Vite-url]: https://vite.dev/
+[TailwindCSS]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white
+[Tailwind-url]: https://tailwindcss.com/

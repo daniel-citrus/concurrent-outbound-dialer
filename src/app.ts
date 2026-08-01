@@ -8,10 +8,10 @@ import { MOCK_AUTO_SIMULATE_DEFAULTS } from "./providers/mock-call-auto-simulato
 import { MockVoiceProvider } from "./providers/mock-voice-provider.js";
 import type { VoiceProvider } from "./providers/voice-provider.js";
 import { InMemorySessionManager } from "./controllers/session-manager.js";
-import { SessionOrchestrator } from "./services/session-orchestrator.js";
 import { CallCanceler } from "./services/call-canceler.js";
 import { WinnerSelector } from "./services/winner-selector.js";
 import { CallStatusProcessor } from "./services/call-status-processor.js";
+import { CallLaunchService } from "./services/call-launch.js";
 import { SessionService } from "./services/session-service.js";
 import { RecoveryService } from "./services/recovery-service.js";
 import { healthRoutes } from "./routes/health.routes.js";
@@ -100,7 +100,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
 
   const sessionManager = new InMemorySessionManager(db, logger);
-  const orchestrator = new SessionOrchestrator(db, env, voiceProvider, sessionManager, logger);
   const callCanceler = new CallCanceler(db, voiceProvider, sessionManager, logger);
   const winnerSelector = new WinnerSelector(db, sessionManager, callCanceler, logger);
   const callStatusProcessor = new CallStatusProcessor(
@@ -109,30 +108,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
     winnerSelector,
     logger,
   );
-  callStatusProcessor.setOrchestrator(orchestrator);
+  const callLaunch = new CallLaunchService(db, sessionManager, logger);
 
-  const sessionService = new SessionService(
-    db,
-    sessionManager,
-    orchestrator,
-    callCanceler,
-    logger,
-  );
+  const sessionService = new SessionService(db, sessionManager, callCanceler, logger);
   callStatusProcessor.setSessionService(sessionService);
 
   const activeAutoSimulator =
     voiceProvider instanceof MockVoiceProvider
       ? voiceProvider.getAutoSimulator()
       : autoSimulator;
-  activeAutoSimulator?.setEmitter((callAttemptId, status) =>
-    callStatusProcessor.processStatus(callAttemptId, status),
-  );
+  activeAutoSimulator?.setEmitter(async (callAttemptId, status) => {
+    await callStatusProcessor.processStatus(callAttemptId, status);
+  });
 
   const recoveryService = new RecoveryService(
     db,
     env,
     sessionManager,
-    orchestrator,
     callCanceler,
     sessionService,
     logger,
@@ -145,7 +137,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     mockVoiceProvider:
       voiceProvider instanceof MockVoiceProvider ? voiceProvider : mockVoiceProvider,
     sessionManager,
-    orchestrator,
+    callLaunch,
     callStatusProcessor,
     callCanceler,
     winnerSelector,

@@ -1,11 +1,11 @@
 import { dialerApi } from "./api";
+import { createClientOrchestrator } from "./orchestrator";
 import type {
   CallAttempt,
   DialingContact,
   DialingSession,
   NebulaProspectContact,
   MockAutoSimulateConfig,
-  MockAutoSimulateState,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
 } from "./types";
@@ -26,10 +26,54 @@ export function createVisualizerStore() {
   let busy = $state(false);
   let healthOk = $state<boolean | null>(null);
   let voiceProvider = $state<string | null>(null);
-  let autoSimulateAvailable = $state(false);
-  let autoSimulateEnabled = $state(false);
+  let autoSimulateAvailable = $state(true);
+  let autoSimulateEnabled = $state(true);
   let autoSimulateConfig = $state<MockAutoSimulateConfig | null>(null);
   let autoSimulateDefaults = $state<MockAutoSimulateConfig | null>(null);
+  let orchRevision = $state(0);
+
+  const { orchestrator, autoSimulator } = createClientOrchestrator(() => {
+    orchRevision += 1;
+    syncRuntimeFromOrchestrator();
+  });
+
+  function syncAutoSimulateFromClient() {
+    autoSimulateAvailable = true;
+    autoSimulateEnabled = autoSimulator.isEnabled();
+    autoSimulateConfig = autoSimulator.getConfig();
+    autoSimulateDefaults = autoSimulator.getDefaults();
+  }
+
+  syncAutoSimulateFromClient();
+
+  function syncRuntimeFromOrchestrator() {
+    if (!session) {
+      runtime = null;
+      return;
+    }
+    const controller = orchestrator.getController(session.id);
+    if (!controller) {
+      runtime = null;
+      return;
+    }
+    const local = controller.toRuntimeSnapshot(session.status);
+    const reconcile = orchestrator.getReconcileState(session.id);
+    local.orchestrator = {
+      reconcileRunning: reconcile.running,
+      reconcileQueued: reconcile.queued,
+    };
+    local.resources = local.resources.map((resource) => {
+      const call = calls.find((c) => c.id === resource.callAttemptId);
+      const contact = call ? contacts.find((c) => c.id === call.contactId) : undefined;
+      return {
+        ...resource,
+        contactId: call?.contactId ?? null,
+        phoneNumber: contact?.phoneNumber ?? null,
+        callStatus: call?.status ?? null,
+      };
+    });
+    runtime = local;
+  }
 
   async function refreshHealth() {
     try {
@@ -42,43 +86,37 @@ export function createVisualizerStore() {
     }
   }
 
-  function applyAutoSimulateState(state: MockAutoSimulateState) {
-    autoSimulateAvailable = state.available;
-    autoSimulateEnabled = state.enabled;
-    autoSimulateConfig = { ...state.config };
-    autoSimulateDefaults = { ...state.defaults };
-  }
-
   async function refreshAutoSimulate() {
-    try {
-      const state = await dialerApi.getMockAutoSimulate();
-      applyAutoSimulateState(state);
-    } catch {
-      autoSimulateAvailable = false;
-      autoSimulateEnabled = false;
-      autoSimulateConfig = null;
-      autoSimulateDefaults = null;
-    }
+    syncAutoSimulateFromClient();
   }
 
   async function refreshAll() {
     if (!session) return;
     const id = session.id;
-    // Backend defaults to 100; visualizer needs the full session batch.
     const listOpts = { limit: 10_000 };
     try {
-      const [nextSession, nextContacts, nextCalls, nextSnap, nextRuntime] = await Promise.all([
+      const [nextSession, nextContacts, nextCalls, nextSnap] = await Promise.all([
         dialerApi.getSession(id),
         dialerApi.getContacts(id, listOpts),
         dialerApi.getCalls(id, listOpts),
         dialerApi.getStatus(id),
-        dialerApi.getRuntime(id),
       ]);
       session = nextSession;
       contacts = nextContacts;
       calls = nextCalls;
       if (nextSnap) snapshot = nextSnap;
-      runtime = nextRuntime;
+
+      const controller = orchestrator.getController(id);
+      if (controller) {
+        for (const call of nextCalls) {
+          if (!isActiveCall(call.status) || call.permitReleased) {
+            orchestrator.cancelAutoSimulate(call.providerCallId);
+            controller.releasePermit(call.id);
+          }
+        }
+      }
+
+      syncRuntimeFromOrchestrator();
       error = null;
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to refresh";
@@ -123,6 +161,7 @@ export function createVisualizerStore() {
       return snapshot;
     },
     get runtime() {
+      void orchRevision;
       return runtime;
     },
     get contacts() {
@@ -202,6 +241,8 @@ export function createVisualizerStore() {
         );
         calls = [];
         snapshot = null;
+        orchestrator.clear();
+        await orchestrator.hydrate(rest, []);
         startPolling();
       });
     },
@@ -210,6 +251,11 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.start(id);
+        await orchestrator.hydrate(
+          session,
+          calls.filter((c) => isActiveCall(c.status) && !c.permitReleased).map((c) => c.id),
+        );
+        orchestrator.scheduleReconcile(id);
       });
     },
     async setAutoContinue(autoContinue: boolean) {
@@ -224,6 +270,7 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.pause(id);
+        autoSimulator.stopAll();
       });
     },
     async resume() {
@@ -231,6 +278,7 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.resume(id);
+        orchestrator.scheduleReconcile(id);
       });
     },
     async stop() {
@@ -238,29 +286,24 @@ export function createVisualizerStore() {
       const id = session.id;
       await run(async () => {
         session = await dialerApi.stop(id);
+        autoSimulator.stopAll();
       });
     },
     async setAutoSimulate(enabled: boolean) {
-      await run(async () => {
-        const state = await dialerApi.setMockAutoSimulate({ enabled });
-        applyAutoSimulateState(state);
-      });
+      autoSimulator.setEnabled(enabled);
+      syncAutoSimulateFromClient();
     },
     async updateAutoSimulateConfig(config: Partial<MockAutoSimulateConfig>) {
-      await run(async () => {
-        const state = await dialerApi.setMockAutoSimulate(config);
-        applyAutoSimulateState(state);
-      });
+      autoSimulator.configure(config);
+      syncAutoSimulateFromClient();
     },
     async resetAutoSimulateConfig() {
-      await run(async () => {
-        const state = await dialerApi.setMockAutoSimulate({ reset: true });
-        applyAutoSimulateState(state);
-      });
+      autoSimulator.resetConfig();
+      syncAutoSimulateFromClient();
     },
     async simulate(callAttemptId: string, status: Parameters<typeof dialerApi.simulate>[1]) {
       await run(async () => {
-        await dialerApi.simulate(callAttemptId, status);
+        await orchestrator.reportStatus(callAttemptId, status);
       });
     },
     async simulateMany(
@@ -274,7 +317,7 @@ export function createVisualizerStore() {
       }
       await run(async () => {
         const results = await Promise.allSettled(
-          uniqueIds.map((id) => dialerApi.simulate(id, status)),
+          uniqueIds.map((id) => orchestrator.reportStatus(id, status)),
         );
         const failed = results.filter((r) => r.status === "rejected");
         if (failed.length > 0) {
@@ -298,7 +341,7 @@ export function createVisualizerStore() {
       const uniqueIds = targets.map((c) => c.id);
       await run(async () => {
         const results = await Promise.allSettled(
-          uniqueIds.map((id) => dialerApi.simulate(id, status)),
+          uniqueIds.map((id) => orchestrator.reportStatus(id, status)),
         );
         const failed = results.filter((r) => r.status === "rejected");
         if (failed.length > 0) {
@@ -315,6 +358,7 @@ export function createVisualizerStore() {
     },
     reset() {
       stopPolling();
+      orchestrator.clear();
       session = null;
       agentLabel = null;
       snapshot = null;

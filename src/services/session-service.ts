@@ -24,7 +24,6 @@ import {
   validationError,
 } from "../domain/errors.js";
 import type { SessionManager } from "../controllers/session-manager.js";
-import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { CallCanceler } from "./call-canceler.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
@@ -102,7 +101,6 @@ export class SessionService {
   constructor(
     private readonly db: DbPool,
     private readonly sessionManager: SessionManager,
-    private readonly orchestrator: SessionOrchestrator,
     private readonly callCanceler: CallCanceler,
     private readonly logger: Logger,
   ) {}
@@ -232,13 +230,14 @@ export class SessionService {
   async getRuntimeSnapshot(sessionId: string): Promise<SessionRuntimeSnapshot> {
     const session = await this.getSession(sessionId);
     const controller = this.sessionManager.get(sessionId);
-    const orchestrator = this.orchestrator.getReconcileState(sessionId);
     const attempts = new CallAttemptRepository(this.db);
     const contacts = new ContactRepository(this.db);
     const activeAttempts = await attempts.listActiveBySession(sessionId);
     const contactRows = await contacts.listBySession(sessionId);
     const contactById = new Map(contactRows.map((contact) => [contact.id, contact]));
 
+    // Orchestration (semaphore / reconcile queue) is client-owned. Server runtime
+    // exposes DB-backed active attempts plus any leftover cancel/recovery controller.
     if (!controller) {
       return {
         sessionId: session.id,
@@ -247,8 +246,8 @@ export class SessionService {
         controllerPresent: false,
         semaphore: {
           capacity: session.concurrencyLimit,
-          availablePermits: session.concurrencyLimit,
-          occupiedPermits: 0,
+          availablePermits: Math.max(0, session.concurrencyLimit - activeAttempts.length),
+          occupiedPermits: activeAttempts.length,
           waiters: 0,
         },
         mutex: {
@@ -256,11 +255,21 @@ export class SessionService {
           resource: "reconciliation",
         },
         orchestrator: {
-          reconcileRunning: orchestrator.running,
-          reconcileQueued: orchestrator.queued,
+          reconcileRunning: false,
+          reconcileQueued: false,
         },
         reconciliationPending: false,
-        resources: [],
+        resources: activeAttempts.map((attempt) => {
+          const contact = contactById.get(attempt.contactId);
+          return {
+            callAttemptId: attempt.id,
+            providerCallId: attempt.providerCallId,
+            permitReleased: attempt.permitReleased,
+            contactId: attempt.contactId,
+            phoneNumber: contact?.phoneNumber ?? null,
+            callStatus: attempt.status,
+          };
+        }),
       };
     }
 
@@ -294,8 +303,8 @@ export class SessionService {
         resource: "reconciliation",
       },
       orchestrator: {
-        reconcileRunning: orchestrator.running,
-        reconcileQueued: orchestrator.queued,
+        reconcileRunning: false,
+        reconcileQueued: false,
       },
       reconciliationPending: controller.reconciliationPending,
       resources,
@@ -341,7 +350,6 @@ export class SessionService {
 
     const controller = await this.sessionManager.getOrCreate(sessionId);
     controller.status = "running";
-    this.orchestrator.scheduleReconcile(sessionId);
 
     this.logger.info(
       { sessionId, clientId: session.clientId, agentId: session.agentId },
@@ -405,7 +413,6 @@ export class SessionService {
 
     const controller = await this.sessionManager.getOrCreate(sessionId);
     controller.status = "running";
-    this.orchestrator.scheduleReconcile(sessionId);
 
     this.logger.info(
       { sessionId, reason, previousWinningCallAttemptId },
@@ -502,7 +509,6 @@ export class SessionService {
 
     const controller = await this.sessionManager.getOrCreate(sessionId);
     controller.status = "running";
-    this.orchestrator.scheduleReconcile(sessionId);
 
     return updated;
   }

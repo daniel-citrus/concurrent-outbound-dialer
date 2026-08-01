@@ -12,8 +12,6 @@ async function main(): Promise<void> {
     shuttingDown = true;
     app.log.info({ signal }, "graceful shutdown started");
 
-    app.services.orchestrator.stopAcceptingWork();
-
     try {
       // Closes HTTP server and runs onClose hooks (including owned DB pool).
       await app.close();

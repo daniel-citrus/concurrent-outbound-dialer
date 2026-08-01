@@ -2,7 +2,6 @@ import type { Logger } from "pino";
 import type { DbPool } from "../database/pool.js";
 import type { Env } from "../config/env.js";
 import type { SessionManager } from "../controllers/session-manager.js";
-import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { CallCanceler } from "./call-canceler.js";
 import type { SessionService } from "./session-service.js";
 import { isTerminalCallAttemptStatus } from "../domain/statuses.js";
@@ -12,12 +11,15 @@ import { CallAttemptRepository } from "../repositories/call-attempt.repository.j
 import { ContactRepository } from "../repositories/contact.repository.js";
 import { EventRepository } from "../repositories/event.repository.js";
 
+/**
+ * Boot recovery for cancel/cleanup controllers. Dialing refill is owned by the
+ * client orchestrator (it schedules reconcile after reload when status=running).
+ */
 export class RecoveryService {
   constructor(
     private readonly db: DbPool,
     private readonly env: Env,
     private readonly sessionManager: SessionManager,
-    private readonly orchestrator: SessionOrchestrator,
     private readonly callCanceler: CallCanceler,
     private readonly sessionService: SessionService | null,
     private readonly logger: Logger,
@@ -57,9 +59,7 @@ export class RecoveryService {
         "recovered session controller",
       );
 
-      if (session.status === "running") {
-        this.orchestrator.scheduleReconcile(session.id);
-      } else if (session.status === "winner_selected") {
+      if (session.status === "winner_selected") {
         await this.callCanceler.cancelNonWinningActiveCalls(
           session.id,
           session.winningCallAttemptId,
@@ -108,9 +108,6 @@ export class RecoveryService {
         payload: { status: session.status },
       });
     }
-
-    // Note: with MockVoiceProvider, provider-side call state verification
-    // is limited — we trust persisted attempt rows.
   }
 
   private async failStaleCreatingAttempts(
@@ -141,8 +138,6 @@ export class RecoveryService {
 
       const controller = this.sessionManager.get(attempt.sessionId);
       controller?.releasePermit(attempt.id);
-
-      this.orchestrator.scheduleReconcile(attempt.sessionId);
     }
   }
 }

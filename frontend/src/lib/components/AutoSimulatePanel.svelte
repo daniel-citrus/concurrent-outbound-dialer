@@ -73,8 +73,7 @@
 			<div class="border-border grid gap-3.5 border-t px-4 py-4">
 				{#if !available}
 					<p class="text-muted-foreground text-sm">
-						Set <code class="font-mono text-[0.85em]">MOCK_AUTO_SIMULATE=true</code> on the API to
-						configure.
+						Client auto-simulate is unavailable in this build.
 					</p>
 				{:else if draft}
 					<p class="text-muted-foreground text-sm">

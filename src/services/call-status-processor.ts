@@ -13,13 +13,19 @@ import { ContactRepository } from "../repositories/contact.repository.js";
 import { EventRepository } from "../repositories/event.repository.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 import type { WinnerSelector } from "./winner-selector.js";
-import type { SessionOrchestrator } from "./session-orchestrator.js";
 import type { SessionService } from "./session-service.js";
 import { tryCompleteOrAutoContinue } from "./session-completion.js";
 import { releasePermitDurable } from "./permit-release.js";
 
+export type ProcessStatusResult = {
+  attempt: CallAttempt;
+  sessionId: string;
+  triggeredReconcile: boolean;
+  winnerSelected: boolean;
+  winningCallAttemptId: string | null;
+};
+
 export class CallStatusProcessor {
-  private orchestrator: SessionOrchestrator | undefined;
   private sessionService: SessionService | undefined;
 
   constructor(
@@ -29,10 +35,6 @@ export class CallStatusProcessor {
     private readonly logger: Logger,
   ) {}
 
-  setOrchestrator(orchestrator: SessionOrchestrator): void {
-    this.orchestrator = orchestrator;
-  }
-
   setSessionService(sessionService: SessionService): void {
     this.sessionService = sessionService;
   }
@@ -40,7 +42,7 @@ export class CallStatusProcessor {
   async processStatus(
     callAttemptId: string,
     rawStatus: CallAttemptStatus,
-  ): Promise<CallAttempt> {
+  ): Promise<ProcessStatusResult> {
     const attempts = new CallAttemptRepository(this.db);
     const contacts = new ContactRepository(this.db);
     const events = new EventRepository(this.db);
@@ -59,12 +61,17 @@ export class CallStatusProcessor {
       payload: { status: rawStatus, previousStatus: attempt.status },
     });
 
-    // Unknown is stored when safe but never treated as a normal regression crash.
     const nextStatus: CallAttemptStatus = rawStatus;
 
     const transition = evaluateCallAttemptTransition(attempt.status, nextStatus);
     if (transition.kind === "duplicate") {
-      return attempt;
+      return {
+        attempt,
+        sessionId: attempt.sessionId,
+        triggeredReconcile: false,
+        winnerSelected: false,
+        winningCallAttemptId: null,
+      };
     }
     if (transition.kind === "reject") {
       this.logger.warn(
@@ -77,7 +84,13 @@ export class CallStatusProcessor {
         },
         "ignored invalid call status transition",
       );
-      return attempt;
+      return {
+        attempt,
+        sessionId: attempt.sessionId,
+        triggeredReconcile: false,
+        winnerSelected: false,
+        winningCallAttemptId: null,
+      };
     }
 
     const patches: {
@@ -96,22 +109,48 @@ export class CallStatusProcessor {
       expectedStatuses: [attempt.status],
     });
     if (!updated) {
-      // Concurrent update won; reload.
       const reloaded = await attempts.findById(callAttemptId);
-      return reloaded ?? attempt;
+      return {
+        attempt: reloaded ?? attempt,
+        sessionId: attempt.sessionId,
+        triggeredReconcile: false,
+        winnerSelected: false,
+        winningCallAttemptId: null,
+      };
     }
 
     if (nextStatus === "in_progress") {
       await this.winnerSelector.selectWinner(updated.id);
       const afterWinner = await attempts.findById(updated.id);
-      return afterWinner ?? updated;
+      const sessions = new SessionRepository(this.db);
+      const session = await sessions.findById(updated.sessionId);
+      return {
+        attempt: afterWinner ?? updated,
+        sessionId: updated.sessionId,
+        triggeredReconcile: false,
+        winnerSelected: Boolean(afterWinner?.isWinner || session?.status === "winner_selected"),
+        winningCallAttemptId: session?.winningCallAttemptId ?? null,
+      };
     }
 
     if (isTerminalCallAttemptStatus(nextStatus)) {
-      await this.handleTerminal(updated, contacts, events, controller);
+      const terminalResult = await this.handleTerminal(updated, contacts, events, controller);
+      return {
+        attempt: (await attempts.findById(updated.id)) ?? updated,
+        sessionId: updated.sessionId,
+        triggeredReconcile: terminalResult.triggeredReconcile,
+        winnerSelected: false,
+        winningCallAttemptId: null,
+      };
     }
 
-    return (await attempts.findById(updated.id)) ?? updated;
+    return {
+      attempt: (await attempts.findById(updated.id)) ?? updated,
+      sessionId: updated.sessionId,
+      triggeredReconcile: false,
+      winnerSelected: false,
+      winningCallAttemptId: null,
+    };
   }
 
   private async handleTerminal(
@@ -119,7 +158,7 @@ export class CallStatusProcessor {
     contacts: ContactRepository,
     events: EventRepository,
     controller: Awaited<ReturnType<SessionManager["getOrCreate"]>>,
-  ): Promise<void> {
+  ): Promise<{ triggeredReconcile: boolean }> {
     if (!attempt.isWinner) {
       const contactStatus =
         attempt.status === "failed"
@@ -148,22 +187,31 @@ export class CallStatusProcessor {
       payload: { status: attempt.status, isWinner: attempt.isWinner },
     });
 
+    let triggeredReconcile = false;
+
     if (attempt.isWinner) {
       const sessions = new SessionRepository(this.db);
       const session = await sessions.findById(attempt.sessionId);
-      await tryCompleteOrAutoContinue(this.db, this.sessionManager, attempt.sessionId, {
-        autoContinue: session?.autoContinue ?? false,
-        continueDialing: this.sessionService
-          ? (id, reason) => this.sessionService!.continueDialing(id, reason)
-          : null,
-        logger: this.logger,
-        warnMessage: "auto-continue after winning call failed",
-      });
-    } else if (this.orchestrator) {
-      this.orchestrator.scheduleReconcile(attempt.sessionId);
+      const outcome = await tryCompleteOrAutoContinue(
+        this.db,
+        this.sessionManager,
+        attempt.sessionId,
+        {
+          autoContinue: session?.autoContinue ?? false,
+          continueDialing: this.sessionService
+            ? (id, reason) => this.sessionService!.continueDialing(id, reason)
+            : null,
+          logger: this.logger,
+          warnMessage: "auto-continue after winning call failed",
+        },
+      );
+      triggeredReconcile = outcome === "continued";
+    } else {
+      // Client orchestrator should refill concurrency after a non-winner terminal.
+      triggeredReconcile = true;
     }
 
-    // Allow terminal sessions to drop inactive controllers after cleanup.
     void this.sessionManager.removeIfInactive(attempt.sessionId);
+    return { triggeredReconcile };
   }
 }

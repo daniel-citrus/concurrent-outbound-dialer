@@ -158,6 +158,66 @@ export const dialerApi = {
     return request(`/sessions/${sessionId}/stop`, { method: "POST" });
   },
 
+  claim(
+    sessionId: string,
+    limit: number,
+  ): Promise<{
+    claims: Array<{
+      contact: DialingContact;
+      callAttempt: CallAttempt;
+    }>;
+  }> {
+    return request(`/sessions/${sessionId}/claim`, {
+      method: "POST",
+      body: JSON.stringify({ limit }),
+    });
+  },
+
+  getReconcileHint(sessionId: string): Promise<{
+    sessionId: string;
+    sessionStatus: string;
+    concurrencyLimit: number;
+    persistedActiveCount: number;
+    queuedContactCount: number;
+    claimedContactCount: number;
+  }> {
+    return request(`/sessions/${sessionId}/reconcile-hint`);
+  },
+
+  markCallCreated(callAttemptId: string, providerCallId: string): Promise<CallAttempt> {
+    return request(`/calls/${callAttemptId}/created`, {
+      method: "POST",
+      body: JSON.stringify({ providerCallId }),
+    });
+  },
+
+  markCallCreationFailed(
+    callAttemptId: string,
+    error: { errorCode?: string; errorMessage?: string },
+  ): Promise<CallAttempt> {
+    return request(`/calls/${callAttemptId}/creation-failed`, {
+      method: "POST",
+      body: JSON.stringify(error),
+    });
+  },
+
+  reportStatus(
+    callAttemptId: string,
+    status: CallAttemptStatus,
+  ): Promise<
+    CallAttempt & {
+      sessionId: string;
+      triggeredReconcile: boolean;
+      winnerSelected: boolean;
+      winningCallAttemptId: string | null;
+    }
+  > {
+    return request(`/calls/${callAttemptId}/report-status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  },
+
   simulate(callAttemptId: string, status: CallAttemptStatus): Promise<CallAttempt> {
     return request(`/calls/${callAttemptId}/simulate`, {
       method: "POST",

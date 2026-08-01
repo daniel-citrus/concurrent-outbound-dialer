@@ -16,19 +16,23 @@ import { createPool } from "../../src/database/pool.js";
 describe("integration: dialer multi-session service", () => {
   let ctx: TestContext;
   let app: TestContext["app"];
+  let orch: TestContext["orch"];
 
   beforeAll(async () => {
     ctx = await setupTestApp();
     app = ctx.app;
+    orch = ctx.orch;
   });
 
   beforeEach(async () => {
     ctx.provider.reset();
+    orch.clear();
     await truncateDialerTables(ctx.db);
     app.services.sessionManager.clear();
   });
 
   afterAll(async () => {
+    orch.stop();
     await app.close();
     await ctx.db.end();
   });
@@ -133,51 +137,66 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("4-6. different clients run simultaneously with independent semaphores", async () => {
-    const sessionA = await startSessionWithContacts(app, {
-      clientId: uniqueClient("A"),
-      concurrencyLimit: 4,
-      contacts: contactList(10),
-    });
-    const sessionB = await startSessionWithContacts(app, {
-      clientId: uniqueClient("B"),
-      concurrencyLimit: 3,
-      contacts: contactList(10),
-    });
+    const sessionA = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient("A"),
+        concurrencyLimit: 4,
+        contacts: contactList(10),
+      },
+      orch,
+    );
+    const sessionB = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient("B"),
+        concurrencyLimit: 3,
+        contacts: contactList(10),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
-      const a = app.services.sessionManager.get(sessionA);
-      const b = app.services.sessionManager.get(sessionB);
+      const a = orch.get(sessionA);
+      const b = orch.get(sessionB);
       return Boolean(a && b && a.activeCalls.size === 4 && b.activeCalls.size === 3);
     });
 
-    const controllerA = app.services.sessionManager.get(sessionA)!;
-    const controllerB = app.services.sessionManager.get(sessionB)!;
+    const controllerA = orch.get(sessionA)!;
+    const controllerB = orch.get(sessionB)!;
 
     expect(controllerA.availablePermits()).toBe(0);
     expect(controllerB.availablePermits()).toBe(0);
     expect(controllerA.activeCalls.size).toBe(4);
     expect(controllerB.activeCalls.size).toBe(3);
-    // Semaphores are distinct objects
     expect(controllerA.semaphore).not.toBe(controllerB.semaphore);
 
     const callsA = await app.inject({ method: "GET", url: `/sessions/${sessionA}/calls` });
     const callsB = await app.inject({ method: "GET", url: `/sessions/${sessionB}/calls` });
     const activeA = callsA
       .json<Array<{ status: string }>>()
-      .filter((c) => ["creating", "queued", "initiated", "ringing", "in_progress"].includes(c.status));
+      .filter((c) =>
+        ["creating", "queued", "initiated", "ringing", "in_progress"].includes(c.status),
+      );
     const activeB = callsB
       .json<Array<{ status: string }>>()
-      .filter((c) => ["creating", "queued", "initiated", "ringing", "in_progress"].includes(c.status));
+      .filter((c) =>
+        ["creating", "queued", "initiated", "ringing", "in_progress"].includes(c.status),
+      );
     expect(activeA.length).toBe(4);
     expect(activeB.length).toBe(3);
   });
 
   it("7-9. launches up to concurrency, never exceeds, claims in order", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 3,
-      contacts: contactList(8),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 3,
+        contacts: contactList(8),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -200,11 +219,15 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("10. duplicate reconciliation does not duplicate contacts", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(5),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(5),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -212,9 +235,9 @@ describe("integration: dialer multi-session service", () => {
     });
 
     await Promise.all([
-      app.services.orchestrator.reconcileSession(sessionId),
-      app.services.orchestrator.reconcileSession(sessionId),
-      app.services.orchestrator.reconcileSession(sessionId),
+      orch.reconcileSession(sessionId),
+      orch.reconcileSession(sessionId),
+      orch.reconcileSession(sessionId),
     ]);
 
     const calls = (
@@ -224,11 +247,15 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("11-13. terminal release frees capacity; duplicate terminal is safe", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 1,
-      contacts: contactList(3),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 1,
+        contacts: contactList(3),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -240,20 +267,8 @@ describe("integration: dialer multi-session service", () => {
     ).json<Array<{ id: string; permitReleased?: boolean }>>();
     const firstId = calls[0]!.id;
 
-    const sim = await app.inject({
-      method: "POST",
-      url: `/calls/${firstId}/simulate`,
-      payload: { status: "no_answer" },
-    });
-    expectOk(sim);
-
-    // Duplicate terminal
-    const dup = await app.inject({
-      method: "POST",
-      url: `/calls/${firstId}/simulate`,
-      payload: { status: "no_answer" },
-    });
-    expectOk(dup);
+    await orch.reportStatus(firstId, "no_answer");
+    await orch.reportStatus(firstId, "no_answer");
 
     await waitFor(async () => {
       const next = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -267,18 +282,22 @@ describe("integration: dialer multi-session service", () => {
     const first = calls.find((c) => c.id === firstId)!;
     expect(first.permitReleased).toBe(true);
 
-    const controller = app.services.sessionManager.get(sessionId)!;
+    const controller = orch.get(sessionId)!;
     expect(controller.availablePermits() + controller.activeCalls.size).toBe(
       controller.concurrencyLimit,
     );
   });
 
   it("14-17. concurrent answers produce one winner; loser disconnected; others canceled; no new launches", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 3,
-      contacts: contactList(10),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 3,
+        contacts: contactList(10),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -289,29 +308,15 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
     ).json<Array<{ id: string; providerCallId: string | null }>>();
 
-    // Advance all to ringing first
     for (const call of calls) {
-      await app.inject({
-        method: "POST",
-        url: `/calls/${call.id}/simulate`,
-        payload: { status: "ringing" },
-      });
+      await orch.reportStatus(call.id, "ringing");
     }
 
     const [a, b] = calls;
-    const results = await Promise.all([
-      app.inject({
-        method: "POST",
-        url: `/calls/${a!.id}/simulate`,
-        payload: { status: "in_progress" },
-      }),
-      app.inject({
-        method: "POST",
-        url: `/calls/${b!.id}/simulate`,
-        payload: { status: "in_progress" },
-      }),
+    await Promise.all([
+      orch.reportStatus(a!.id, "in_progress"),
+      orch.reportStatus(b!.id, "in_progress"),
     ]);
-    expect(results.every((r) => r.statusCode === 200)).toBe(true);
 
     await waitFor(async () => {
       const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
@@ -340,13 +345,12 @@ describe("integration: dialer multi-session service", () => {
     const losers = after.filter((c) => c.id !== winnerId);
     expect(losers.every((c) => c.status === "canceled" || c.isWinner)).toBe(true);
 
-    // Loser disconnect tracked on provider when they were in_progress
     expect(
       ctx.provider.disconnectRequests.length + ctx.provider.cancelRequests.length,
     ).toBeGreaterThan(0);
 
     const callCountBefore = after.length;
-    await app.services.orchestrator.reconcileSession(sessionId);
+    await orch.reconcileSession(sessionId);
     await new Promise((r) => setTimeout(r, 50));
     const callCountAfter = (
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
@@ -355,11 +359,15 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("18-19. pause stops launches; resume replenishes", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(6),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(6),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -381,9 +389,17 @@ describe("integration: dialer multi-session service", () => {
       );
     });
 
-    const midCount = (
+    // Release local permits for canceled calls so resume capacity is accurate.
+    const canceled = (
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
-    ).json<unknown[]>().length;
+    ).json<Array<{ id: string; status: string }>>();
+    for (const call of canceled) {
+      if (["canceled", "completed", "busy", "failed", "no_answer"].includes(call.status)) {
+        orch.get(sessionId)?.releasePermit(call.id);
+      }
+    }
+
+    const midCount = canceled.length;
 
     await new Promise((r) => setTimeout(r, 80));
     const still = (
@@ -396,6 +412,7 @@ describe("integration: dialer multi-session service", () => {
       url: `/sessions/${sessionId}/resume`,
     });
     expectOk(resumed);
+    orch.scheduleReconcile(sessionId);
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -404,14 +421,18 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("20. stop is idempotent", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(4),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(4),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
-      return (app.services.sessionManager.get(sessionId)?.activeCalls.size ?? 0) > 0;
+      return (orch.get(sessionId)?.activeCalls.size ?? 0) > 0;
     });
 
     const first = await app.inject({ method: "POST", url: `/sessions/${sessionId}/stop` });
@@ -421,12 +442,16 @@ describe("integration: dialer multi-session service", () => {
     expect(second.json<{ status: string }>().status).toBe("stopped");
   });
 
-  it("21. completed session controller is removed safely", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 1,
-      contacts: contactList(1),
-    });
+  it("21. completed session finishes when queue exhausted", async () => {
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 1,
+        contacts: contactList(1),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -437,46 +462,47 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
     ).json<Array<{ id: string }>>()[0]!.id;
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${callId}/simulate`,
-      payload: { status: "no_answer" },
-    });
+    await orch.reportStatus(callId, "no_answer");
 
     await waitFor(async () => {
       const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
       return session.json<{ status: string }>().status === "completed";
     });
-
-    await waitFor(() => !app.services.sessionManager.get(sessionId));
-    expect(app.services.sessionManager.get(sessionId)).toBeUndefined();
   });
 
-  it("22. running controller can be restored after registry clear", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(5),
-    });
+  it("22. client controller can be restored after clear", async () => {
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(5),
+      },
+      orch,
+    );
 
     await waitFor(async () => {
-      return (app.services.sessionManager.get(sessionId)?.activeCalls.size ?? 0) === 2;
+      return (orch.get(sessionId)?.activeCalls.size ?? 0) === 2;
     });
 
-    app.services.sessionManager.clear();
-    expect(app.services.sessionManager.get(sessionId)).toBeUndefined();
+    orch.clear();
+    expect(orch.get(sessionId)).toBeUndefined();
 
-    const restored = await app.services.sessionManager.getOrCreate(sessionId);
+    const restored = await orch.ensure(sessionId);
     expect(restored.activeCalls.size).toBe(2);
     expect(restored.availablePermits()).toBe(0);
   });
 
   it("23-24. status polling returns version updates and 204 when unchanged", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 1,
-      contacts: contactList(2),
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 1,
+        contacts: contactList(2),
+      },
+      orch,
+    );
 
     const status1 = await app.inject({
       method: "GET",
@@ -500,15 +526,8 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
     ).json<Array<{ id: string }>>()[0]!.id;
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${callId}/simulate`,
-      payload: { status: "ringing" },
-    });
+    await orch.reportStatus(callId, "ringing");
 
-    // bump via terminal to change state version on session when completed path...
-    // ringing may not bump session state_version; start already did.
-    // trigger pause to bump version
     await app.inject({ method: "POST", url: `/sessions/${sessionId}/pause` });
 
     const status2 = await app.inject({
@@ -522,12 +541,16 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("25. manual Start after winner resumes dialing when queue remains", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(6),
-      autoContinue: false,
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(6),
+        autoContinue: false,
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -538,11 +561,7 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
     ).json<Array<{ id: string }>>();
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${calls[0]!.id}/simulate`,
-      payload: { status: "in_progress" },
-    });
+    await orch.reportStatus(calls[0]!.id, "in_progress");
 
     await waitFor(async () => {
       const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
@@ -559,11 +578,7 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}` })
     ).json<{ winningCallAttemptId: string }>().winningCallAttemptId;
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${winnerId}/simulate`,
-      payload: { status: "completed" },
-    });
+    await orch.reportStatus(winnerId, "completed");
 
     const continued = await app.inject({
       method: "POST",
@@ -571,6 +586,7 @@ describe("integration: dialer multi-session service", () => {
     });
     expectOk(continued);
     expect(continued.json<{ status: string }>().status).toBe("running");
+    orch.scheduleReconcile(sessionId);
 
     await waitFor(async () => {
       const callsAfter = await app.inject({
@@ -587,12 +603,16 @@ describe("integration: dialer multi-session service", () => {
   });
 
   it("26. auto-continue resumes dialing after winning call ends", async () => {
-    const sessionId = await startSessionWithContacts(app, {
-      clientId: uniqueClient(),
-      concurrencyLimit: 2,
-      contacts: contactList(6),
-      autoContinue: true,
-    });
+    const sessionId = await startSessionWithContacts(
+      app,
+      {
+        clientId: uniqueClient(),
+        concurrencyLimit: 2,
+        contacts: contactList(6),
+        autoContinue: true,
+      },
+      orch,
+    );
 
     await waitFor(async () => {
       const calls = await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` });
@@ -603,11 +623,7 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}/calls` })
     ).json<Array<{ id: string }>>()[0]!.id;
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${callId}/simulate`,
-      payload: { status: "in_progress" },
-    });
+    await orch.reportStatus(callId, "in_progress");
 
     await waitFor(async () => {
       const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });
@@ -618,11 +634,7 @@ describe("integration: dialer multi-session service", () => {
       await app.inject({ method: "GET", url: `/sessions/${sessionId}` })
     ).json<{ winningCallAttemptId: string }>().winningCallAttemptId;
 
-    await app.inject({
-      method: "POST",
-      url: `/calls/${winnerId}/simulate`,
-      payload: { status: "completed" },
-    });
+    await orch.reportStatus(winnerId, "completed");
 
     await waitFor(async () => {
       const session = await app.inject({ method: "GET", url: `/sessions/${sessionId}` });

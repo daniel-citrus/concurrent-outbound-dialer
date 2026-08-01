@@ -5,11 +5,14 @@ import { createPool, type DbPool } from "../../src/database/pool.js";
 import { migrate } from "../../src/database/migrate.js";
 import { buildApp } from "../../src/app.js";
 import { MockVoiceProvider } from "../../src/providers/mock-voice-provider.js";
+import { TestClientOrchestrator } from "./test-orchestrator.js";
+import type { CallAttemptStatus } from "../../src/domain/statuses.js";
 
 export type TestContext = {
   app: Awaited<ReturnType<typeof buildApp>>;
   db: DbPool;
   provider: MockVoiceProvider;
+  orch: TestClientOrchestrator;
 };
 
 let sharedDb: DbPool | undefined;
@@ -40,7 +43,8 @@ export async function setupTestApp(): Promise<TestContext> {
   });
   await app.ready();
 
-  return { app, db: sharedDb, provider };
+  const orch = new TestClientOrchestrator(app, provider);
+  return { app, db: sharedDb, provider, orch };
 }
 
 export async function truncateDialerTables(db: DbPool): Promise<void> {
@@ -89,6 +93,7 @@ export async function startSessionWithContacts(
     autoContinue?: boolean;
     start?: boolean;
   },
+  orch?: TestClientOrchestrator,
 ) {
   const created = await app.inject({
     method: "POST",
@@ -113,7 +118,21 @@ export async function startSessionWithContacts(
     url: `/sessions/${body.id}/start`,
   });
   expectOk(started, 200);
+
+  if (orch) {
+    await orch.ensure(body.id);
+    orch.scheduleReconcile(body.id);
+  }
+
   return body.id;
+}
+
+export async function simulateStatus(
+  orch: TestClientOrchestrator,
+  callAttemptId: string,
+  status: CallAttemptStatus,
+) {
+  return orch.reportStatus(callAttemptId, status);
 }
 
 export function expectOk(

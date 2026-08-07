@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
-import { withTransaction } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { DialingSession } from "../domain/session.js";
 import type { DialingContact } from "../domain/contact.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
@@ -99,7 +98,7 @@ export type SessionRuntimeSnapshot = {
 
 export class SessionService {
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly sessionManager: SessionManager,
     private readonly callCanceler: CallCanceler,
     private readonly logger: Logger,
@@ -130,34 +129,13 @@ export class SessionService {
       }
     }
 
-    return withTransaction(this.db, async (client) => {
-      const sessions = new SessionRepository(client);
-      const contactsRepo = new ContactRepository(client);
-      const events = new EventRepository(client);
-
-      const session = await sessions.create(client, {
-        clientId: input.clientId,
-        agentId: input.agentId,
-        concurrencyLimit: input.concurrencyLimit,
-        autoContinue: input.autoContinue,
-      });
-
-      const contacts = await contactsRepo.insertMany(client, session.id, input.contacts);
-      await events.append(
-        {
-          sessionId: session.id,
-          eventType: "session_created",
-          payload: {
-            clientId: session.clientId,
-            agentId: session.agentId,
-            contactCount: contacts.length,
-            concurrencyLimit: session.concurrencyLimit,
-          },
-        },
-        client,
-      );
-
-      return { session, contacts };
+    const sessions = new SessionRepository(this.db);
+    return sessions.create({
+      clientId: input.clientId,
+      agentId: input.agentId,
+      concurrencyLimit: input.concurrencyLimit,
+      autoContinue: input.autoContinue,
+      contacts: input.contacts,
     });
   }
 

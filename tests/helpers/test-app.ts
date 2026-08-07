@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach } from "vitest";
-import { loadEnv, resetEnvCache } from "../../src/config/env.js";
-import { createPool, type DbPool } from "../../src/database/pool.js";
-import { migrate } from "../../src/database/migrate.js";
+import { loadEnv, resetEnvCache, resolveSupabaseCredentials } from "../../src/config/env.js";
+import { createDialerSupabase, type DialerSupabase } from "../../src/database/supabase.js";
 import { buildApp } from "../../src/app.js";
 import { MockVoiceProvider } from "../../src/providers/mock-voice-provider.js";
 import { TestClientOrchestrator } from "./test-orchestrator.js";
@@ -10,14 +9,33 @@ import type { CallAttemptStatus } from "../../src/domain/statuses.js";
 
 export type TestContext = {
   app: Awaited<ReturnType<typeof buildApp>>;
-  db: DbPool;
+  db: DialerSupabase;
   provider: MockVoiceProvider;
   orch: TestClientOrchestrator;
 };
 
-let sharedDb: DbPool | undefined;
+let sharedDb: DialerSupabase | undefined;
+
+export function hasSupabaseEnv(): boolean {
+  try {
+    resetEnvCache();
+    const env = loadEnv({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    resolveSupabaseCredentials(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function setupTestApp(): Promise<TestContext> {
+  if (!hasSupabaseEnv()) {
+    throw new Error(
+      "Integration tests require SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY " +
+        "(or NEBULA_SUPABASE_URL + NEBULA_SUPABASE_SERVICE_ROLE_KEY). " +
+        "Apply migrations/001 and migrations/002 to that project first.",
+    );
+  }
+
   resetEnvCache();
   const env = loadEnv({
     NODE_ENV: "test",
@@ -26,10 +44,10 @@ export async function setupTestApp(): Promise<TestContext> {
     MOCK_PROVIDER_FAILURE_RATE: "0",
     SERVICE_API_KEY: "",
   });
+  const creds = resolveSupabaseCredentials(env);
 
   if (!sharedDb) {
-    sharedDb = createPool(env.DATABASE_URL);
-    await migrate(env.DATABASE_URL);
+    sharedDb = createDialerSupabase(creds.url, creds.serviceRoleKey);
   }
 
   await truncateDialerTables(sharedDb);
@@ -47,11 +65,13 @@ export async function setupTestApp(): Promise<TestContext> {
   return { app, db: sharedDb, provider, orch };
 }
 
-export async function truncateDialerTables(db: DbPool): Promise<void> {
-  await db.query(`
-    TRUNCATE dial_events, call_attempts, dialing_contacts, dialing_sessions
-    RESTART IDENTITY CASCADE
-  `);
+export async function truncateDialerTables(db: DialerSupabase): Promise<void> {
+  const { error } = await db.rpc("dialer_test_truncate");
+  if (error) {
+    throw new Error(
+      `dialer_test_truncate failed (apply migrations/002_dialer_supabase_rpcs.sql): ${error.message}`,
+    );
+  }
 }
 
 export function uniqueClient(prefix = "client"): string {
@@ -148,10 +168,15 @@ export function expectOk(
 
 export function registerDbHooks(): void {
   beforeAll(async () => {
+    if (!hasSupabaseEnv()) {
+      throw new Error(
+        "Skip/require SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY for integration hooks",
+      );
+    }
     resetEnvCache();
     const env = loadEnv({ NODE_ENV: "test", LOG_LEVEL: "silent" });
-    sharedDb = createPool(env.DATABASE_URL);
-    await migrate(env.DATABASE_URL);
+    const creds = resolveSupabaseCredentials(env);
+    sharedDb = createDialerSupabase(creds.url, creds.serviceRoleKey);
   });
 
   beforeEach(async () => {
@@ -159,9 +184,6 @@ export function registerDbHooks(): void {
   });
 
   afterAll(async () => {
-    if (sharedDb) {
-      await sharedDb.end();
-      sharedDb = undefined;
-    }
+    sharedDb = undefined;
   });
 }

@@ -1,5 +1,5 @@
 import type { Env } from "../config/env.js";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { VoiceProvider } from "../providers/voice-provider.js";
 import type { MockVoiceProvider } from "../providers/mock-voice-provider.js";
 import type { SessionManager } from "../controllers/session-manager.js";
@@ -12,7 +12,7 @@ import type { CallLaunchService } from "../services/call-launch.js";
 
 export type AppServices = {
   env: Env;
-  db: DbPool;
+  db: DialerSupabase;
   voiceProvider: VoiceProvider;
   mockVoiceProvider: MockVoiceProvider | null;
   sessionManager: SessionManager;

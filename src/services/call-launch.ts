@@ -1,6 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
-import { withTransaction } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
 import {
   DomainError,
@@ -12,9 +11,9 @@ import { calculateLaunchCount } from "../domain/statuses.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import { claimContactsAndReserveAttempts, type ReservedClaim } from "../repositories/claim.repository.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
-import { ContactRepository } from "../repositories/contact.repository.js";
 import { EventRepository } from "../repositories/event.repository.js";
 import { SessionRepository } from "../repositories/session.repository.js";
+import { mapCallAttempt, type CallAttemptRow } from "../repositories/mappers.js";
 import { tryCompleteSessionIfExhausted } from "./session-completion.js";
 
 export type ReconcileHint = {
@@ -32,27 +31,35 @@ export type ReconcileHint = {
  */
 export class CallLaunchService {
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly sessionManager: SessionManager,
     private readonly logger: Logger,
   ) {}
 
   async getReconcileHint(sessionId: string): Promise<ReconcileHint> {
     const sessions = new SessionRepository(this.db);
-    const attempts = new CallAttemptRepository(this.db);
-    const contacts = new ContactRepository(this.db);
     const session = await sessions.findById(sessionId);
     if (!session) {
       throw sessionNotFound(sessionId);
     }
-    const counts = await contacts.countByStatus(sessionId);
+
+    const { data, error } = await this.db.rpc("dialer_reconcile_hint", {
+      p_session_id: sessionId,
+    });
+    if (error) {
+      throw new Error(`reconcile hint: ${error.message}`);
+    }
+    if (!data) {
+      throw sessionNotFound(sessionId);
+    }
+    const hint = data as ReconcileHint;
     return {
-      sessionId: session.id,
-      sessionStatus: session.status,
-      concurrencyLimit: session.concurrencyLimit,
-      persistedActiveCount: await attempts.countActiveBySession(sessionId),
-      queuedContactCount: counts["queued"] ?? 0,
-      claimedContactCount: counts["claimed"] ?? 0,
+      sessionId: hint.sessionId,
+      sessionStatus: hint.sessionStatus,
+      concurrencyLimit: hint.concurrencyLimit,
+      persistedActiveCount: hint.persistedActiveCount,
+      queuedContactCount: hint.queuedContactCount,
+      claimedContactCount: hint.claimedContactCount,
     };
   }
 
@@ -97,9 +104,7 @@ export class CallLaunchService {
       return [];
     }
 
-    const claims = await withTransaction(this.db, (client) =>
-      claimContactsAndReserveAttempts(client, sessionId, launchCount),
-    );
+    const claims = await claimContactsAndReserveAttempts(this.db, sessionId, launchCount);
 
     if (claims.length === 0) {
       await tryCompleteSessionIfExhausted(this.db, this.sessionManager, sessionId);
@@ -129,36 +134,24 @@ export class CallLaunchService {
     }
 
     const attempts = new CallAttemptRepository(this.db);
-    const contacts = new ContactRepository(this.db);
-    const events = new EventRepository(this.db);
-
-    const attempt = await attempts.findById(callAttemptId);
-    if (!attempt) {
+    const { data, error } = await this.db.rpc("dialer_mark_call_created", {
+      p_call_attempt_id: callAttemptId,
+      p_provider_call_id: providerCallId,
+    });
+    if (error) {
+      throw new Error(`mark call created: ${error.message}`);
+    }
+    if (!data) {
       throw callAttemptNotFound(callAttemptId);
     }
 
-    const updated = await attempts.updateStatus(callAttemptId, "queued", {
-      providerCallId,
-      expectedStatuses: ["creating"],
-    });
-    if (!updated) {
-      const reloaded = await attempts.findById(callAttemptId);
-      if (!reloaded) throw callAttemptNotFound(callAttemptId);
-      return reloaded;
-    }
+    const updated = mapRpcAttempt(data);
+    const controller = this.sessionManager.get(updated.sessionId);
+    controller?.setProviderCallId(updated.id, providerCallId);
 
-    await contacts.updateStatus(attempt.contactId, "dialing");
-    await events.append({
-      sessionId: attempt.sessionId,
-      callAttemptId: attempt.id,
-      eventType: "call_created",
-      payload: { providerCallId },
-    });
-
-    const controller = this.sessionManager.get(attempt.sessionId);
-    controller?.setProviderCallId(attempt.id, providerCallId);
-
-    return updated;
+    // Prefer mapped RPC row; fall back to repo if needed
+    const reloaded = await attempts.findById(callAttemptId);
+    return reloaded ?? updated;
   }
 
   async markCallCreationFailed(
@@ -166,56 +159,47 @@ export class CallLaunchService {
     input: { errorCode?: string; errorMessage?: string },
   ): Promise<CallAttempt> {
     const attempts = new CallAttemptRepository(this.db);
-    const contacts = new ContactRepository(this.db);
-    const events = new EventRepository(this.db);
-
-    const attempt = await attempts.findById(callAttemptId);
-    if (!attempt) {
-      throw callAttemptNotFound(callAttemptId);
-    }
-
     const code = input.errorCode ?? "PROVIDER_FAILURE";
     const message = input.errorMessage ?? "provider failure";
 
-    const updated = await attempts.updateStatus(callAttemptId, "failed", {
-      errorCode: code,
-      errorMessage: message,
-      completedAt: new Date(),
-      permitReleased: true,
-      expectedStatuses: ["creating"],
-    });
-
-    if (!updated) {
-      const reloaded = await attempts.findById(callAttemptId);
-      if (!reloaded) throw callAttemptNotFound(callAttemptId);
-      return reloaded;
+    const existing = await attempts.findById(callAttemptId);
+    if (!existing) {
+      throw callAttemptNotFound(callAttemptId);
     }
 
-    await contacts.updateStatus(attempt.contactId, "failed", {
-      completedAt: new Date(),
+    const { data, error } = await this.db.rpc("dialer_mark_call_creation_failed", {
+      p_call_attempt_id: callAttemptId,
+      p_error_code: code,
+      p_error_message: message,
     });
-    await events.append({
-      sessionId: attempt.sessionId,
-      callAttemptId: attempt.id,
-      eventType: "call_creation_failed",
-      payload: { error: message, code },
-    });
+    if (error) {
+      throw new Error(`mark call creation failed: ${error.message}`);
+    }
+    if (!data) {
+      throw callAttemptNotFound(callAttemptId);
+    }
 
-    const controller = this.sessionManager.get(attempt.sessionId);
-    controller?.releasePermit(attempt.id);
+    const updated = mapRpcAttempt(data);
+    const controller = this.sessionManager.get(updated.sessionId);
+    controller?.releasePermit(updated.id);
 
     this.logger.error(
       {
-        sessionId: attempt.sessionId,
-        callAttemptId: attempt.id,
-        contactId: attempt.contactId,
+        sessionId: updated.sessionId,
+        callAttemptId: updated.id,
+        contactId: updated.contactId,
         error: message,
       },
       "call creation failed",
     );
 
-    return updated;
+    const reloaded = await attempts.findById(callAttemptId);
+    return reloaded ?? updated;
   }
+}
+
+function mapRpcAttempt(data: unknown): CallAttempt {
+  return mapCallAttempt(data as CallAttemptRow);
 }
 
 export function serializeReservedClaim(claim: ReservedClaim) {

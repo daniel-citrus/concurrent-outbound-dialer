@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
 import type { CallAttemptStatus } from "../domain/statuses.js";
 import {
@@ -29,7 +29,7 @@ export class CallStatusProcessor {
   private sessionService: SessionService | undefined;
 
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly sessionManager: SessionManager,
     private readonly winnerSelector: WinnerSelector,
     private readonly logger: Logger,

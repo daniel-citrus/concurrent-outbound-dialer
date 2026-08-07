@@ -4,8 +4,11 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
   app.get("/health", async () => {
     let database = "unknown";
     try {
-      await app.services.db.query("SELECT 1");
-      database = "ok";
+      const { error } = await app.services.db
+        .from("dialing_sessions")
+        .select("id")
+        .limit(1);
+      database = error ? "error" : "ok";
     } catch {
       database = "error";
     }

@@ -14,12 +14,12 @@ type SessionRow = {
   winning_call_attempt_id: string | null;
   auto_continue: boolean;
   state_version: number;
-  created_at: Date;
-  started_at: Date | null;
-  paused_at: Date | null;
-  stopped_at: Date | null;
-  completed_at: Date | null;
-  updated_at: Date;
+  created_at: Date | string;
+  started_at: Date | string | null;
+  paused_at: Date | string | null;
+  stopped_at: Date | string | null;
+  completed_at: Date | string | null;
+  updated_at: Date | string;
 };
 
 type ContactRow = {
@@ -29,10 +29,10 @@ type ContactRow = {
   phone_number: string;
   position: number;
   status: ContactStatus;
-  claimed_at: Date | null;
-  completed_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
+  claimed_at: Date | string | null;
+  completed_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
 };
 
 type CallAttemptRow = {
@@ -45,10 +45,10 @@ type CallAttemptRow = {
   permit_released: boolean;
   error_code: string | null;
   error_message: string | null;
-  created_at: Date;
-  answered_at: Date | null;
-  completed_at: Date | null;
-  updated_at: Date;
+  created_at: Date | string;
+  answered_at: Date | string | null;
+  completed_at: Date | string | null;
+  updated_at: Date | string;
 };
 
 type EventRow = {
@@ -57,8 +57,15 @@ type EventRow = {
   call_attempt_id: string | null;
   event_type: DialEventType;
   payload: Record<string, unknown>;
-  created_at: Date;
+  created_at: Date | string;
 };
+
+function asDate(value: Date | string): Date;
+function asDate(value: Date | string | null | undefined): Date | null;
+function asDate(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null;
+  return value instanceof Date ? value : new Date(value);
+}
 
 export function mapSession(row: SessionRow): DialingSession {
   return {
@@ -70,12 +77,12 @@ export function mapSession(row: SessionRow): DialingSession {
     winningCallAttemptId: row.winning_call_attempt_id,
     autoContinue: row.auto_continue,
     stateVersion: row.state_version,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    pausedAt: row.paused_at,
-    stoppedAt: row.stopped_at,
-    completedAt: row.completed_at,
-    updatedAt: row.updated_at,
+    createdAt: asDate(row.created_at),
+    startedAt: asDate(row.started_at),
+    pausedAt: asDate(row.paused_at),
+    stoppedAt: asDate(row.stopped_at),
+    completedAt: asDate(row.completed_at),
+    updatedAt: asDate(row.updated_at),
   };
 }
 
@@ -87,10 +94,10 @@ export function mapContact(row: ContactRow): DialingContact {
     phoneNumber: row.phone_number,
     position: row.position,
     status: row.status,
-    claimedAt: row.claimed_at,
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    claimedAt: asDate(row.claimed_at),
+    completedAt: asDate(row.completed_at),
+    createdAt: asDate(row.created_at),
+    updatedAt: asDate(row.updated_at),
   };
 }
 
@@ -105,10 +112,10 @@ export function mapCallAttempt(row: CallAttemptRow): CallAttempt {
     permitReleased: row.permit_released,
     errorCode: row.error_code,
     errorMessage: row.error_message,
-    createdAt: row.created_at,
-    answeredAt: row.answered_at,
-    completedAt: row.completed_at,
-    updatedAt: row.updated_at,
+    createdAt: asDate(row.created_at),
+    answeredAt: asDate(row.answered_at),
+    completedAt: asDate(row.completed_at),
+    updatedAt: asDate(row.updated_at),
   };
 }
 
@@ -119,7 +126,7 @@ export function mapEvent(row: EventRow): DialEvent {
     callAttemptId: row.call_attempt_id,
     eventType: row.event_type,
     payload: row.payload ?? {},
-    createdAt: row.created_at,
+    createdAt: asDate(row.created_at),
   };
 }
 

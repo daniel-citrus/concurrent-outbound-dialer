@@ -1,8 +1,8 @@
 import Fastify from "fastify";
 import pino from "pino";
 import type { Env } from "./config/env.js";
-import { loadEnv } from "./config/env.js";
-import { createPool, type DbPool } from "./database/pool.js";
+import { loadEnv, resolveSupabaseCredentials } from "./config/env.js";
+import { createDialerSupabase, type DialerSupabase } from "./database/supabase.js";
 import { MockCallAutoSimulator } from "./providers/mock-call-auto-simulator.js";
 import { MOCK_AUTO_SIMULATE_DEFAULTS } from "./providers/mock-call-auto-simulator.js";
 import { MockVoiceProvider } from "./providers/mock-voice-provider.js";
@@ -28,7 +28,7 @@ import {
 
 export type BuildAppOptions = {
   env?: Env;
-  db?: DbPool;
+  db?: DialerSupabase;
   voiceProvider?: VoiceProvider;
   logger?: pino.Logger;
   runRecovery?: boolean;
@@ -45,6 +45,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
           "req.headers.authorization",
           "DATABASE_URL",
           "env.DATABASE_URL",
+          "SUPABASE_SERVICE_ROLE_KEY",
+          "env.SUPABASE_SERVICE_ROLE_KEY",
+          "NEBULA_SUPABASE_SERVICE_ROLE_KEY",
+          "env.NEBULA_SUPABASE_SERVICE_ROLE_KEY",
           "SERVICE_API_KEY",
           "env.SERVICE_API_KEY",
         ],
@@ -56,8 +60,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
           : undefined,
     });
 
-  const ownsDb = !options.db;
-  const db = options.db ?? createPool(env.DATABASE_URL);
+  const db =
+    options.db ??
+    (() => {
+      const creds = resolveSupabaseCredentials(env);
+      return createDialerSupabase(creds.url, creds.serviceRoleKey);
+    })();
 
   const autoSimulator = env.MOCK_AUTO_SIMULATE
     ? new MockCallAutoSimulator({
@@ -174,9 +182,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.addHook("onClose", async () => {
     activeAutoSimulator?.stopAll();
-    if (ownsDb) {
-      await db.end();
-    }
   });
 
   return app;

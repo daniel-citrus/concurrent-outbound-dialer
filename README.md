@@ -13,7 +13,7 @@
   <h3 align="center">Concurrent Outbound Dialer</h3>
 
   <p align="center">
-    Standalone concurrent outbound dialer — thin Fastify + Postgres system of record, with a Svelte client orchestrator for mock-driven testing.
+    Standalone concurrent outbound dialer — thin Fastify HTTP API + **Supabase RPC** system of record, with a Svelte client orchestrator for mock-driven testing.
     <br />
     <a href="https://github.com/daniel-citrus/concurrent-outbound-dialer"><strong>Explore the docs »</strong></a>
     <br />
@@ -60,7 +60,7 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-Thin Fastify + PostgreSQL system of record; the **browser client** owns reconciliation, admission control, and dial placement. Atomic claim, winner selection, and status validation stay on the server.
+Thin Fastify HTTP API; **Supabase Postgres via service-role RPC / PostgREST** is the system of record. The **browser client** owns reconciliation, admission control, and dial placement. Atomic claim, winner selection, and status validation stay on the server (as RPCs).
 
 PostgreSQL is the durable source of truth for sessions, ordered contacts, call attempts, and append-only events. The Svelte visualizer runs a client orchestrator with a per-session semaphore and reconciliation mutex for local mock testing.
 
@@ -72,10 +72,10 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for Mermaid diagrams.
 Browser (Visualizer)
 └── ClientSessionOrchestrator
     └── ClientSessionController — Semaphore(N), Mutex, active calls
-         ├── claim / created / report-status → Thin Fastify API → Postgres
+         ├── claim / created / report-status → Thin Fastify API → Supabase RPC
          └── CallPlacer (mock today; Twilio Device later)
 
-Fastify (system of record)
+Fastify (HTTP) + Supabase RPCs (durable concurrency)
 └── claim, lifecycle, status, winner, cancel
 ```
 
@@ -138,7 +138,7 @@ Injectable `CallPlacer` on the client (mock provider IDs in the visualizer). Ser
 ### Prerequisites
 
 * Node.js 22+
-* Docker (for Postgres)
+* A Supabase project with dialer migrations applied (or local Supabase)
 * npm
 
 ### Installation
@@ -148,18 +148,21 @@ Injectable `CallPlacer` on the client (mock provider IDs in the visualizer). Ser
    git clone git@github.com:daniel-citrus/concurrent-outbound-dialer.git
    cd concurrent-outbound-dialer
    ```
-2. Start Postgres and configure env
+2. Configure env
    ```sh
-   docker compose up -d postgres
    cp .env.example .env
+   # Set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+   # (NEBULA_SUPABASE_* is accepted as a fallback alias)
    ```
-3. Install dependencies and migrate
+3. Apply SQL migrations to that Supabase project  
+   - Prefer: Dashboard → SQL → run `migrations/001_dialer_schema.sql` then `migrations/002_dialer_supabase_rpcs.sql`  
+   - Or with a direct DB URL (migrate tooling only):
+     ```sh
+     DATABASE_URL=postgresql://postgres:…@db.<ref>.supabase.co:5432/postgres npm run db:migrate
+     ```
+4. Install and start the API
    ```sh
    npm install
-   npm run db:migrate
-   ```
-4. Start the API
-   ```sh
    npm run dev
    ```
    API: `http://localhost:3000`
@@ -237,28 +240,31 @@ Supported simulate statuses: `queued`, `initiated`, `ringing`, `in_progress`, `c
 ### Migrations
 
 ```bash
-npm run db:migrate
+# Optional direct Postgres URL — not used by the running API
+DATABASE_URL=… npm run db:migrate
 ```
 
-Migrations live in `migrations/` and are tracked in `schema_migrations`.
+- `migrations/001_dialer_schema.sql` — tables / constraints  
+- `migrations/002_dialer_supabase_rpcs.sql` — `dialer_*` RPCs (claim, winner, create session, …)
+
+Runtime uses `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` only (no `DATABASE_URL`).
 
 ### Tests
 
 ```bash
 npm run typecheck
 npm run lint
-npm test
 npm run test:unit
-npm run test:integration
+npm run test:integration   # requires Supabase env + RPCs applied; otherwise skipped
 ```
 
-Integration tests use the real Postgres instance from Docker Compose and `MockVoiceProvider`.
+Unit tests do not need `DATABASE_URL`. Integration tests call Supabase RPCs via the service role.
 
 ### Recovery & shutdown
 
 On startup, sessions in `running`, `winner_selected`, or `stopping` are rebuilt (controllers, semaphores, reconcile / cancel cleanup, fail stuck `creating` attempts).
 
-`SIGTERM` / `SIGINT`: stop accepting work, close HTTP, close the PG pool, exit. Persisted sessions are retained.
+`SIGTERM` / `SIGINT`: stop accepting work, close HTTP, exit. Persisted sessions are retained in Supabase.
 
 Optional auth: set `SERVICE_API_KEY` and send `Authorization: Bearer <key>` (health stays open).
 

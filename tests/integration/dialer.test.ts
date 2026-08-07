@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   contactList,
   expectOk,
+  hasSupabaseEnv,
   setupTestApp,
   startSessionWithContacts,
   truncateDialerTables,
@@ -9,11 +10,10 @@ import {
   waitFor,
   type TestContext,
 } from "../helpers/test-app.js";
-import { migrate } from "../../src/database/migrate.js";
-import { loadEnv, resetEnvCache } from "../../src/config/env.js";
-import { createPool } from "../../src/database/pool.js";
 
-describe("integration: dialer multi-session service", () => {
+const describeIntegration = hasSupabaseEnv() ? describe : describe.skip;
+
+describeIntegration("integration: dialer multi-session service", () => {
   let ctx: TestContext;
   let app: TestContext["app"];
   let orch: TestContext["orch"];
@@ -34,47 +34,18 @@ describe("integration: dialer multi-session service", () => {
   afterAll(async () => {
     orch.stop();
     await app.close();
-    await ctx.db.end();
   });
 
-  it("1. migration replaces schema with required tables and indexes", async () => {
-    resetEnvCache();
-    const env = loadEnv({ NODE_ENV: "test" });
-    const db = createPool(env.DATABASE_URL);
-    await migrate(env.DATABASE_URL);
+  it("1. dialer RPCs are available on Supabase", async () => {
+    const { data, error } = await ctx.db.rpc("dialer_reconcile_hint", {
+      p_session_id: "00000000-0000-0000-0000-000000000000",
+    });
+    // null data is fine (session missing); function must exist
+    expect(error).toBeNull();
+    expect(data).toBeNull();
 
-    const tables = await db.query<{ tablename: string }>(
-      `SELECT tablename FROM pg_tables
-       WHERE schemaname = 'public'
-         AND tablename IN ('dialing_sessions','dialing_contacts','call_attempts','dial_events')
-       ORDER BY tablename`,
-    );
-    expect(tables.rows.map((r) => r.tablename)).toEqual([
-      "call_attempts",
-      "dial_events",
-      "dialing_contacts",
-      "dialing_sessions",
-    ]);
-
-    const indexes = await db.query<{ indexname: string }>(
-      `SELECT indexname FROM pg_indexes
-       WHERE schemaname = 'public'
-         AND indexname IN ('one_active_session_per_client','one_winner_per_session')`,
-    );
-    expect(indexes.rows.map((r) => r.indexname)).toEqual(["one_active_session_per_client"]);
-
-    const autoContinueCol = await db.query<{ column_name: string }>(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_name = 'dialing_sessions' AND column_name = 'auto_continue'`,
-    );
-    expect(autoContinueCol.rows).toHaveLength(1);
-
-    const cols = await db.query<{ column_name: string }>(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_name = 'call_attempts' AND column_name = 'permit_released'`,
-    );
-    expect(cols.rows).toHaveLength(1);
-    await db.end();
+    const { error: truncErr } = await ctx.db.rpc("dialer_test_truncate");
+    expect(truncErr).toBeNull();
   });
 
   it("2. creates session and ordered contacts", async () => {

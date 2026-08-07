@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { Env } from "../config/env.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import type { CallCanceler } from "./call-canceler.js";
@@ -17,7 +17,7 @@ import { EventRepository } from "../repositories/event.repository.js";
  */
 export class RecoveryService {
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly env: Env,
     private readonly sessionManager: SessionManager,
     private readonly callCanceler: CallCanceler,

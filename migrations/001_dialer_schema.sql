@@ -1,5 +1,6 @@
--- Replace prior dialer-prototype schema with the multi-session dialer tables.
--- Dependency-safe drop order. Unrelated non-dialer tables (none present) are preserved.
+-- Squashed dialer schema (final shape of former 002–005).
+-- Fresh databases: apply as-is. Existing DBs that already ran 002–005 should
+-- record this file in schema_migrations instead of re-applying.
 BEGIN;
 
 DROP TABLE IF EXISTS dial_events CASCADE;
@@ -20,6 +21,7 @@ CREATE TABLE dialing_sessions (
   agent_id TEXT NOT NULL,
   status TEXT NOT NULL,
   concurrency_limit INTEGER NOT NULL,
+  auto_continue BOOLEAN NOT NULL DEFAULT TRUE,
   winning_call_attempt_id UUID,
   state_version INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -41,7 +43,7 @@ CREATE TABLE dialing_sessions (
     )
   ),
   CONSTRAINT dialing_sessions_concurrency_limit_check CHECK (
-    concurrency_limit BETWEEN 1 AND 10
+    concurrency_limit BETWEEN 1 AND 15
   )
 );
 
@@ -130,9 +132,8 @@ CREATE INDEX idx_call_attempts_session_status ON call_attempts (session_id, stat
 CREATE INDEX idx_call_attempts_contact_id ON call_attempts (contact_id);
 CREATE INDEX idx_call_attempts_provider_call_id ON call_attempts (provider_call_id);
 
-CREATE UNIQUE INDEX one_winner_per_session
-ON call_attempts (session_id)
-WHERE is_winner = TRUE;
+-- Multiple winners across rounds allowed; current round pointer is
+-- dialing_sessions.winning_call_attempt_id (no one_winner_per_session index).
 
 ALTER TABLE dialing_sessions
   ADD CONSTRAINT fk_dialing_sessions_winning_call_attempt

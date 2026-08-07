@@ -1,8 +1,10 @@
 # Architecture
 
-Standalone concurrent outbound dialer: Fastify + PostgreSQL as the **system of record**, with reconciliation and dial launch owned by the **browser client**. Atomic claim, winner selection, and status validation stay on the server.
+Standalone concurrent outbound dialer: **SvelteKit** + **Supabase Postgres** as the **system of record**, with reconciliation and dial launch owned by the **browser client**. Atomic claim, winner selection, and status validation stay on the Kit server (trusted layer — not browser RPCs).
 
-Related plans: [client-side orchestrator](./implementation-plans/client-side-orchestrator.md), [multi-round continue](./implementation-plans/multi-round-session-continue.md).
+Related plans: [client-side orchestrator](./implementation-plans/client-side-orchestrator.md), [multi-round continue](./implementation-plans/multi-round-session-continue.md), [Nebula migration](./implementation-plans/nebula-migration.md).
+
+> **Migration note:** The live path is SvelteKit → Supabase. The former Fastify + Docker Compose Postgres stack is retired.
 
 ---
 
@@ -10,76 +12,75 @@ Related plans: [client-side orchestrator](./implementation-plans/client-side-orc
 
 ```text
 concurrent-outbound-dialer/
-├── src/                     # Fastify API (system of record)
-│   ├── server.ts            # Process entry: listen, SIGTERM/SIGINT shutdown
-│   ├── app.ts               # Composition root: wire services, routes, recovery
-│   ├── config/              # Env (zod)
-│   ├── plugins/             # Request id, error handler, optional Bearer API key
-│   ├── routes/              # HTTP surface
-│   ├── controllers/         # In-memory SessionManager (cancel / permit bookkeeping)
-│   ├── services/            # Lifecycle, claim/launch, status, winner, cancel, recovery
-│   ├── repositories/        # Postgres access (sessions, contacts, attempts, claims, events)
-│   ├── domain/              # Types, statuses, transition rules, errors
-│   ├── providers/           # VoiceProvider + mock (cancel / disconnect)
-│   ├── database/            # Pool + migrate runner
-│   └── types/               # AppServices decoration for Fastify
-├── migrations/              # Ordered SQL applied by `npm run db:migrate`
-├── frontend/                # Svelte 5 visualizer + client orchestrator
-│   └── src/lib/orchestrator/
-│       ├── client-session-orchestrator.ts
-│       ├── client-session-controller.ts
-│       ├── client-session-manager.ts
-│       ├── client-mock-auto-simulator.ts
-│       ├── call-placer.ts
-│       └── session-client.ts
-├── tests/                   # unit/ + integration/ (vitest; TestClientOrchestrator harness)
-└── docs/                    # This file + implementation plans
+├── src/
+│   ├── routes/                 # SvelteKit pages + API (+server.ts)
+│   │   ├── +page.svelte        # Visualizer UI
+│   │   └── api/                # Session / claim / status HTTP surface
+│   ├── lib/
+│   │   ├── orchestrator/       # Client control plane (browser)
+│   │   │   ├── client-session-orchestrator.ts
+│   │   │   ├── client-session-controller.ts
+│   │   │   ├── client-session-manager.ts
+│   │   │   ├── client-mock-auto-simulator.ts
+│   │   │   ├── call-placer.ts
+│   │   │   └── session-client.ts
+│   │   ├── server/dialer/      # Trusted server modules (Kit-only)
+│   │   │   ├── services/       # Lifecycle, claim/launch, status, winner, cancel
+│   │   │   ├── repositories/   # Postgres access (pg pool for claim/winner txns)
+│   │   │   ├── domain/         # Types, statuses, transition rules, errors
+│   │   │   └── providers/      # VoiceProvider + mock (cancel / disconnect)
+│   │   └── store.svelte.ts     # Visualizer session store
+│   ├── hooks.server.ts         # Optional API key / request wiring
+│   └── app.html
+├── supabase/
+│   ├── config.toml
+│   └── migrations/             # dialing_sessions / contacts / attempts / events
+├── tests/                      # unit/ + integration/ (vitest; TestClientOrchestrator)
+└── docs/                       # This file + implementation plans
 ```
 
-### Backend module map (`src/`)
+### Server module map (`src/lib/server/dialer/`)
 
 | Area | Responsibility |
 | --- | --- |
-| `routes/` | HTTP adapters → session / claim / status / Nebula helpers |
+| Kit `routes/api/` | HTTP adapters → session / claim / status handlers |
 | `services/session-service` | Create/start/pause/resume/stop/continue, snapshots, serialization |
 | `services/call-launch` | Claim contacts, mark created / creation-failed |
 | `services/call-status-processor` | Apply status transitions; winner / complete-or-continue; returns `triggeredReconcile` |
 | `services/winner-selector` | Atomic Postgres winner claim; cancel/disconnect losers |
 | `services/call-canceler` | Cancel or disconnect non-winners / stop cleanup |
 | `services/session-completion` | Queue exhaustion → `completed`, or auto-continue when enabled |
-| `services/recovery-service` | On boot: restore cancel controllers; fail stale `creating` |
-| `services/nebula-*` | Optional read-only Nebula Supabase proxies |
-| `controllers/` | Server-side permit map for cancel/recovery |
 | `repositories/` | SQL for durable queue, attempts, events, claim txn |
-| `providers/` | Provider-neutral voice API for cancel/disconnect (and integration-test dial) |
+| `providers/` | Provider-neutral voice API for cancel/disconnect |
 
-Composition in `buildApp()`: pool → voice provider → session manager → canceler → winner → status processor → call launch → session service → recovery → Fastify routes.
+Composition: Supabase DB URL → `pg` pool (claim/winner transactions) + service-role `supabase-js` where simple reads suffice → dialer services → Kit `+server.ts` routes.
 
 ### HTTP surface
 
+Same path shapes the client orchestrator already calls (same-origin; no separate API origin):
+
 | Route group | Paths (summary) |
 | --- | --- |
-| Health | `GET /health` |
-| Sessions | `POST /sessions`, `GET /sessions/:id`, `/runtime`, `/status`, `/contacts`, `/calls`, `/events`, `/reconcile-hint` |
+| Health | `GET /health` (or Kit health equivalent) |
+| Sessions | `POST /sessions`, `GET /sessions/:id`, `/status`, `/contacts`, `/calls`, `/events`, `/reconcile-hint` |
 | Session control | `POST .../start`, `/pause`, `/resume`, `/stop`; `PATCH .../auto-continue` |
 | Claim / launch | `POST /sessions/:id/claim` |
-| Calls | `POST /calls/:id/report-status`, `/created`, `/creation-failed`; `POST .../simulate` (alias of report-status) |
-| Nebula reads | `GET /nebula/users`, `/nebula/agents/:agentId/prospect-lists`, `/nebula/prospect-lists/:listId/contacts` |
+| Calls | `POST /calls/:id/report-status`, `/created`, `/creation-failed` |
 
-Optional `SERVICE_API_KEY`: when set, all routes except `/health` require `Authorization: Bearer …`.
+Optional `SERVICE_API_KEY`: when set, API routes except health require `Authorization: Bearer …`.
 
 Lifecycle endpoints flip durable session status only. They do **not** launch dials — the client schedules reconcile after start / resume / continue.
 
-### Visualizer (`frontend/`)
+### Visualizer + client orchestrator
 
 | Piece | Role |
 | --- | --- |
 | `lib/orchestrator/` | Reconcile loop, semaphore, mutex, mock `CallPlacer`, client auto-simulate |
 | `lib/store.svelte.ts` | Session lifecycle → API then `scheduleReconcile`; polling is UI refresh |
-| Boards / dialer UI | Concurrency, semaphore debug, contacts, WinnerPopup, BrowserCallDialer |
-| `SessionSetup` | Nebula agent/list contact picker when Nebula env is configured |
+| Boards / dialer UI | Concurrency, semaphore debug, contacts, WinnerPopup |
+| `session-client.ts` | `fetch` to same-origin Kit routes |
 
-### Durable schema (`migrations/`)
+### Durable schema (`supabase/migrations/`)
 
 | Table | Purpose |
 | --- | --- |
@@ -92,6 +93,8 @@ Constraints:
 
 - Partial unique index: **one active session per `client_id`** (non-terminal statuses)
 - Multi-round continue clears `winning_call_attempt_id` while prior attempts keep `is_winner = true`
+
+Dev default: **local Supabase CLI** (`supabase start`). Hosted Supabase via env (`SUPABASE_URL`, service role, database URL) when configured.
 
 ---
 
@@ -106,23 +109,23 @@ flowchart LR
     UI --> Orch
     Orch --> Place
   end
-  subgraph api [Fastify process]
+  subgraph kit [SvelteKit process]
     Life[Session lifecycle]
     Claim[Atomic claim]
     Status[Status + winner]
     Cancel[Cancel / disconnect]
   end
-  PG[(PostgreSQL)]
-  Orch -->|start / claim / created / report-status| api
-  Life --> PG
-  Claim --> PG
-  Status --> PG
-  Cancel --> PG
+  SB[(Supabase Postgres)]
+  Orch -->|same-origin start / claim / created / report-status| kit
+  Life --> SB
+  Claim --> SB
+  Status --> SB
+  Cancel --> SB
 ```
 
 - **Browser:** decides *when* to claim and dial; holds the admission semaphore; places calls; reports status.
-- **Fastify:** HTTP API and durable authority — session lifecycle writes, `FOR UPDATE SKIP LOCKED` claim, validated status transitions, atomic winner selection, and cancel/disconnect of non-winners.
-- **PostgreSQL:** source of truth for sessions, contacts, attempts, and events.
+- **SvelteKit:** trusted HTTP API and durable authority — session lifecycle writes, `FOR UPDATE SKIP LOCKED` claim, validated status transitions, atomic winner selection, and cancel/disconnect of non-winners. Claim/winner use a **`pg` pool** against the Supabase database URL (supabase-js alone cannot express those multi-statement transactions cleanly).
+- **Supabase Postgres:** source of truth for sessions, contacts, attempts, and events.
 - Closing the tab stalls dialing until a client hydrates a `running` session and schedules reconcile.
 
 ---
@@ -163,7 +166,7 @@ Serializes the short “decide what to claim” step for one session.
 
 In short: **mutex** = who may claim next; **semaphore** = how many calls may run.
 
-Server `SessionManager` / `SessionController` hold permits for cancel and recovery bookkeeping only.
+Server-side permit bookkeeping (if present) is only for cancel/recovery — not the client admission semaphore.
 
 ---
 
@@ -172,8 +175,8 @@ Server `SessionManager` / `SessionController` hold permits for cancel and recove
 ```mermaid
 sequenceDiagram
   participant UI as Visualizer / Client orch
-  participant API as Fastify
-  participant DB as PostgreSQL
+  participant API as SvelteKit
+  participant DB as Supabase Postgres
   participant CSP as CallStatusProcessor
   participant WS as WinnerSelector
 
@@ -225,8 +228,8 @@ sequenceDiagram
   actor U as User
   participant Store as VisualizerStore
   participant Orch as ClientSessionOrchestrator
-  participant API as Fastify
-  participant DB as PostgreSQL
+  participant API as SvelteKit
+  participant DB as Supabase Postgres
 
   U->>Store: Start
   Store->>API: POST /sessions/:id/start
@@ -241,9 +244,9 @@ sequenceDiagram
 
 | Phase | Who | What |
 | --- | --- | --- |
-| **HTTP Start** | Server | Validate transition → persist `running` → return |
+| **HTTP Start** | Kit server | Validate transition → persist `running` → return |
 | **Reconcile** | Client | Mutex → capacity math → claim → permits → place call → `/created` |
-| **Status** | Client → Server | `report-status`; server validates + winner/complete; client refills if `triggeredReconcile` |
+| **Status** | Client → Kit | `report-status`; server validates + winner/complete; client refills if `triggeredReconcile` |
 
 ---
 
@@ -254,8 +257,8 @@ sequenceDiagram
   participant T as Trigger (start / terminal / resume)
   participant O as ClientSessionOrchestrator
   participant C as ClientSessionController
-  participant API as Fastify
-  participant DB as PostgreSQL
+  participant API as SvelteKit
+  participant DB as Supabase Postgres
   participant P as CallPlacer
 
   T->>O: scheduleReconcile(sessionId)
@@ -318,7 +321,7 @@ When a call goes `in_progress`, the first attempt to atomically set `sessions.wi
 sequenceDiagram
   participant A as Attempt A in_progress
   participant B as Attempt B in_progress
-  participant DB as PostgreSQL
+  participant DB as Supabase Postgres
   participant W as WinnerSelector
   participant CC as CallCanceler
 
@@ -366,15 +369,14 @@ stateDiagram-v2
 
 ## 11. Recovery and process lifecycle
 
-`RecoveryService.recover()` on boot:
+On Kit process start (or first trusted request sweep):
 
-- Restores server controllers for cancel/cleanup on `running` / `winner_selected` / `stopping`
-- Fails stale `creating` attempts
-- Runs complete-or-continue when a winner is already terminal
+- Fail stale `creating` attempts
+- Run complete-or-continue when a winner is already terminal
 
 It does not refill the dial queue. An open visualizer hydrates local controller state and `scheduleReconcile`s when session status is `running`.
 
-Graceful shutdown: close the HTTP server, end the DB pool.
+Graceful shutdown: stop the Kit server, end the DB pool.
 
 Integration tests use `TestClientOrchestrator` (`tests/helpers/test-orchestrator.ts`) as a headless stand-in for the browser loop.
 

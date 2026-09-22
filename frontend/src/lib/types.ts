@@ -137,31 +137,16 @@ export type CreateSessionResponse = DialingSession & {
   contacts: DialingContact[];
 };
 
-export type NebulaUser = {
+export type ProspectAgent = {
   id: string;
-  email: string | null;
-  name: string | null;
-  fullName: string | null;
-  firstName: string | null;
-  lastName: string | null;
   label: string;
 };
 
-export function nebulaUserDisplayName(user: Omit<NebulaUser, "label">): string {
-  return (
-    user.name ||
-    user.fullName ||
-    (user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : null) ||
-    user.email?.split("@")[0] ||
-    "Unknown"
-  );
-}
+export type ProspectAgentsResponse = {
+  agents: ProspectAgent[];
+};
 
-export type NebulaUsersResponse =
-  | { configured: false; users: [] }
-  | { configured: true; users: NebulaUser[] };
-
-export type NebulaProspectList = {
+export type ProspectList = {
   id: string;
   name: string;
   status: string;
@@ -169,20 +154,17 @@ export type NebulaProspectList = {
   label: string;
 };
 
-export type NebulaProspectListsResponse =
-  | { configured: false; lists: [] }
-  | { configured: true; lists: NebulaProspectList[] };
+export type ProspectListsResponse = {
+  lists: ProspectList[];
+};
 
-export type NebulaProspectListContactsResponse =
-  | { configured: false; contacts: []; totalInList: 0; skippedWithoutPhone: 0 }
-  | {
-      configured: true;
-      contacts: NebulaProspectContact[];
-      totalInList: number;
-      skippedWithoutPhone: number;
-    };
+export type ProspectListContactsResponse = {
+  contacts: ProspectContact[];
+  totalInList: number;
+  skippedWithoutPhone: number;
+};
 
-export type NebulaProspectContact = {
+export type ProspectContact = {
   externalContactId: string;
   phoneNumber: string;
   name: string;

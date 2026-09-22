@@ -5,9 +5,9 @@ import type {
   CreateSessionResponse,
   DialingContact,
   DialingSession,
-  NebulaUsersResponse,
-  NebulaProspectListContactsResponse,
-  NebulaProspectListsResponse,
+  ProspectAgentsResponse,
+  ProspectListContactsResponse,
+  ProspectListsResponse,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
   MockAutoSimulateConfig,
@@ -77,16 +77,16 @@ export const dialerApi = {
     });
   },
 
-  getNebulaUsers(): Promise<NebulaUsersResponse> {
-    return request("/nebula/users");
+  getProspectAgents(): Promise<ProspectAgentsResponse> {
+    return request("/prospects/agents");
   },
 
-  getAgentProspectLists(agentId: string): Promise<NebulaProspectListsResponse> {
-    return request(`/nebula/agents/${encodeURIComponent(agentId)}/prospect-lists`);
+  getAgentProspectLists(agentId: string): Promise<ProspectListsResponse> {
+    return request(`/prospects/agents/${encodeURIComponent(agentId)}/lists`);
   },
 
-  getProspectListContacts(listId: string): Promise<NebulaProspectListContactsResponse> {
-    return request(`/nebula/prospect-lists/${encodeURIComponent(listId)}/contacts`);
+  getProspectListContacts(listId: string): Promise<ProspectListContactsResponse> {
+    return request(`/prospects/lists/${encodeURIComponent(listId)}/contacts`);
   },
 
   createSession(input: CreateSessionInput): Promise<CreateSessionResponse> {

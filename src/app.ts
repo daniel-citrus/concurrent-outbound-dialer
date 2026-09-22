@@ -3,10 +3,13 @@ import pino from "pino";
 import type { Env } from "./config/env.js";
 import { loadEnv, resolveSupabaseCredentials } from "./config/env.js";
 import { createDialerSupabase, type DialerSupabase } from "./database/supabase.js";
+import { createInMemoryDialerSupabase } from "./database/in-memory-supabase.js";
 import { MockCallAutoSimulator } from "./providers/mock-call-auto-simulator.js";
 import { MOCK_AUTO_SIMULATE_DEFAULTS } from "./providers/mock-call-auto-simulator.js";
 import { MockVoiceProvider } from "./providers/mock-voice-provider.js";
 import type { VoiceProvider } from "./providers/voice-provider.js";
+import { MockProspectProvider } from "./providers/mock-prospect-provider.js";
+import type { ProspectProvider } from "./providers/prospect-provider.js";
 import { InMemorySessionManager } from "./controllers/session-manager.js";
 import { CallCanceler } from "./services/call-canceler.js";
 import { WinnerSelector } from "./services/winner-selector.js";
@@ -18,7 +21,7 @@ import { healthRoutes } from "./routes/health.routes.js";
 import { sessionRoutes } from "./routes/sessions.routes.js";
 import { callRoutes } from "./routes/calls.routes.js";
 import { mockRoutes } from "./routes/mock.routes.js";
-import { nebulaRoutes } from "./routes/nebula.routes.js";
+import { prospectsRoutes } from "./routes/prospects.routes.js";
 import type { AppServices } from "./types/app.js";
 import {
   registerErrorHandler,
@@ -30,6 +33,7 @@ export type BuildAppOptions = {
   env?: Env;
   db?: DialerSupabase;
   voiceProvider?: VoiceProvider;
+  prospectProvider?: ProspectProvider;
   logger?: pino.Logger;
   runRecovery?: boolean;
 };
@@ -60,12 +64,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
           : undefined,
     });
 
-  const db =
-    options.db ??
-    (() => {
-      const creds = resolveSupabaseCredentials(env);
-      return createDialerSupabase(creds.url, creds.serviceRoleKey);
-    })();
+  const db = options.db ?? (await resolveDataStore(env, logger));
+  const prospectProvider = options.prospectProvider ?? new MockProspectProvider();
 
   const autoSimulator = env.MOCK_AUTO_SIMULATE
     ? new MockCallAutoSimulator({
@@ -144,6 +144,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     voiceProvider,
     mockVoiceProvider:
       voiceProvider instanceof MockVoiceProvider ? voiceProvider : mockVoiceProvider,
+    prospectProvider,
     sessionManager,
     callLaunch,
     callStatusProcessor,
@@ -172,7 +173,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(sessionRoutes);
   await app.register(callRoutes);
   await app.register(mockRoutes);
-  await app.register(nebulaRoutes);
+  await app.register(prospectsRoutes);
 
   if (options.runRecovery !== false) {
     app.addHook("onReady", async () => {
@@ -189,4 +190,50 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
 function cryptoRandomId(): string {
   return globalThis.crypto.randomUUID();
+}
+
+const SUPABASE_PROBE_TIMEOUT_MS = 3000;
+
+/**
+ * Resolve the dialer's data store: real Supabase when configured and
+ * reachable, otherwise an in-memory store seeded from sample/mock data so
+ * `npm run dev` works with zero external setup.
+ */
+async function resolveDataStore(env: Env, logger: pino.Logger): Promise<DialerSupabase> {
+  let creds: { url: string; serviceRoleKey: string };
+  try {
+    creds = resolveSupabaseCredentials(env);
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Supabase not configured — using in-memory mock data store",
+    );
+    return createInMemoryDialerSupabase();
+  }
+
+  const client = createDialerSupabase(creds.url, creds.serviceRoleKey);
+  if (await isSupabaseReachable(client)) {
+    return client;
+  }
+
+  logger.warn(
+    "Failed to reach Supabase — using in-memory mock data store",
+  );
+  return createInMemoryDialerSupabase();
+}
+
+async function isSupabaseReachable(client: DialerSupabase): Promise<boolean> {
+  try {
+    const probe = client.from("dialing_sessions").select("id").limit(1);
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Supabase reachability probe timed out")),
+        SUPABASE_PROBE_TIMEOUT_MS,
+      );
+    });
+    const { error } = await Promise.race([probe, timeout]);
+    return !error;
+  } catch {
+    return false;
+  }
 }

@@ -3,11 +3,11 @@
 	import { dialerApi } from "$lib/api";
 	import { formatActivity, formatTimeAgo } from "$lib/contact-display";
 	import type { VisualizerStore } from "$lib/store.svelte";
-	import { formatStatus, nebulaUserDisplayName } from "$lib/types";
+	import { formatStatus } from "$lib/types";
 	import type {
-		NebulaProspectContact,
-		NebulaProspectList,
-		NebulaUser,
+		ProspectContact,
+		ProspectList,
+		ProspectAgent,
 	} from "$lib/types";
 	import { Button } from "$lib/components/ui/button/index.js";
 	import * as Card from "$lib/components/ui/card/index.js";
@@ -28,21 +28,20 @@
 	const clientId = `client-${Math.random().toString(36).slice(2, 7)}`;
 	let agentId = $state("");
 	let prospectListId = $state("");
-	let nebulaUsers = $state<NebulaUser[]>([]);
-	let prospectLists = $state<NebulaProspectList[]>([]);
-	let nebulaConfigured = $state(false);
-	let nebulaUsersLoading = $state(true);
+	let agents = $state<ProspectAgent[]>([]);
+	let prospectLists = $state<ProspectList[]>([]);
+	let agentsLoading = $state(true);
 	let prospectListsLoading = $state(false);
 	let prospectContactsLoading = $state(false);
 	let contactBatchNote = $state("");
 	let concurrencyLimit = $state(4);
-	let selectedContacts = $state<NebulaProspectContact[]>([]);
+	let selectedContacts = $state<ProspectContact[]>([]);
 
 	const selectClass =
 		"border-input bg-transparent dark:bg-input/30 focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border px-2.5 py-1 font-mono text-sm shadow-xs outline-none focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50";
 
 	onMount(() => {
-		void loadNebulaUsers();
+		void loadAgents();
 	});
 
 	$effect(() => {
@@ -57,20 +56,19 @@
 		void loadProspectLists(selectedAgentId);
 	});
 
-	async function loadNebulaUsers() {
-		nebulaUsersLoading = true;
+	async function loadAgents() {
+		agentsLoading = true;
 		try {
-			const response = await dialerApi.getNebulaUsers();
-			nebulaConfigured = response.configured;
-			nebulaUsers = response.users;
-			if (response.users.length > 0 && !agentId) {
-				agentId = response.users[0]!.id;
+			const response = await dialerApi.getProspectAgents();
+			agents = response.agents;
+			if (response.agents.length > 0 && !agentId) {
+				agentId = response.agents[0]!.id;
 			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Failed to load Nebula users";
+			const message = error instanceof Error ? error.message : "Failed to load agents";
 			store.setError(message);
 		} finally {
-			nebulaUsersLoading = false;
+			agentsLoading = false;
 		}
 	}
 
@@ -139,18 +137,16 @@
 		}
 
 		if (!agentId.trim()) {
-			store.setError("Select a Nebula agent");
+			store.setError("Select an agent");
 			return;
 		}
 
-		const selectedAgent = nebulaUsers.find((user) => user.id === agentId.trim());
+		const selectedAgent = agents.find((agent) => agent.id === agentId.trim());
 
 		await store.createAndLoad({
 			clientId,
 			agentId: agentId.trim(),
-			agentLabel: selectedAgent
-				? nebulaUserDisplayName(selectedAgent)
-				: agentId.trim(),
+			agentLabel: selectedAgent?.label ?? agentId.trim(),
 			concurrencyLimit,
 			contacts,
 			contactDetails: selectedContacts,
@@ -165,7 +161,10 @@
 		<Card.Header>
 			<Card.Title>New session</Card.Title>
 			{#if developerMode}
-				<Card.Description>One ordered contact batch. Mock provider — no real Twilio calls.</Card.Description>
+				<Card.Description>
+					One ordered contact batch. Mock voice provider — no real Twilio calls. Prospect data is
+					mocked too.
+				</Card.Description>
 			{/if}
 		</Card.Header>
 
@@ -179,17 +178,15 @@
 						class={selectClass}
 						bind:value={agentId}
 						required
-						disabled={nebulaUsersLoading || nebulaUsers.length === 0}
+						disabled={agentsLoading || agents.length === 0}
 					>
-						{#if nebulaUsersLoading}
-							<option value="">Loading Nebula users…</option>
-						{:else if !nebulaConfigured}
-							<option value="">Nebula not configured</option>
-						{:else if nebulaUsers.length === 0}
-							<option value="">No agents with prospect lists</option>
+						{#if agentsLoading}
+							<option value="">Loading agents…</option>
+						{:else if agents.length === 0}
+							<option value="">No agents available</option>
 						{:else}
-							{#each nebulaUsers as user (user.id)}
-								<option value={user.id}>{user.label}</option>
+							{#each agents as agent (agent.id)}
+								<option value={agent.id}>{agent.label}</option>
 							{/each}
 						{/if}
 					</select>

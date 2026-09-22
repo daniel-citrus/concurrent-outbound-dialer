@@ -26,10 +26,10 @@ type PendingCall = {
 
 export const CLIENT_MOCK_AUTO_SIMULATE_DEFAULTS: ClientMockAutoSimulateConfig = {
   answerRate: 0.11,
-  minStepMs: 400,
-  maxStepMs: 2_000,
-  minTalkMs: 1_500,
-  maxTalkMs: 6_000,
+  minStepMs: 1_500,
+  maxStepMs: 6_000,
+  minTalkMs: 60_000,
+  maxTalkMs: 300_000,
   busyWeight: 2,
   failedWeight: 1,
   noAnswerWeight: 7,

@@ -4,7 +4,7 @@ import type {
   CallAttempt,
   DialingContact,
   DialingSession,
-  NebulaProspectContact,
+  ProspectContact,
   MockAutoSimulateConfig,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
@@ -20,7 +20,7 @@ export function createVisualizerStore() {
   let snapshot = $state<SessionStatusSnapshot | null>(null);
   let runtime = $state<SessionRuntimeSnapshot | null>(null);
   let contacts = $state<DialingContact[]>([]);
-  let contactDetailsByExternalId = $state<Record<string, NebulaProspectContact>>({});
+  let contactDetailsByExternalId = $state<Record<string, ProspectContact>>({});
   let calls = $state<CallAttempt[]>([]);
   let error = $state<string | null>(null);
   let busy = $state(false);
@@ -170,13 +170,13 @@ export function createVisualizerStore() {
     get contactDetailsByExternalId() {
       return contactDetailsByExternalId;
     },
-    getContactDetail(externalContactId: string): NebulaProspectContact {
+    getContactDetail(externalContactId: string): ProspectContact {
       return (
         contactDetailsByExternalId[externalContactId] ??
         fallbackContactDetail(externalContactId)
       );
     },
-    getContactDetailByContactId(contactId: string): NebulaProspectContact {
+    getContactDetailByContactId(contactId: string): ProspectContact {
       const contact = contacts.find((c) => c.id === contactId);
       if (!contact) {
         return fallbackContactDetail("—");
@@ -228,7 +228,7 @@ export function createVisualizerStore() {
       concurrencyLimit: number;
       autoContinue?: boolean;
       contacts: Array<{ externalContactId: string; phoneNumber: string }>;
-      contactDetails?: NebulaProspectContact[];
+      contactDetails?: ProspectContact[];
     }) {
       await run(async () => {
         const created = await dialerApi.createSession(input);

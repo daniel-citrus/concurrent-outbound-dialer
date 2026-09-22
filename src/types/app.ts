@@ -2,6 +2,7 @@ import type { Env } from "../config/env.js";
 import type { DialerSupabase } from "../database/supabase.js";
 import type { VoiceProvider } from "../providers/voice-provider.js";
 import type { MockVoiceProvider } from "../providers/mock-voice-provider.js";
+import type { ProspectProvider } from "../providers/prospect-provider.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import type { CallStatusProcessor } from "../services/call-status-processor.js";
 import type { CallCanceler } from "../services/call-canceler.js";
@@ -15,6 +16,7 @@ export type AppServices = {
   db: DialerSupabase;
   voiceProvider: VoiceProvider;
   mockVoiceProvider: MockVoiceProvider | null;
+  prospectProvider: ProspectProvider;
   sessionManager: SessionManager;
   callLaunch: CallLaunchService;
   callStatusProcessor: CallStatusProcessor;

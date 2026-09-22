@@ -1,4 +1,4 @@
-import type { NebulaProspectContact } from "./types";
+import type { ProspectContact } from "./types";
 
 export function formatTimeAgo(value: string | null): string {
   if (!value) return "—";
@@ -26,7 +26,7 @@ export function formatActivity(value: string): string {
 export function fallbackContactDetail(
   externalContactId: string,
   phoneNumber = "—",
-): NebulaProspectContact {
+): ProspectContact {
   return {
     externalContactId,
     phoneNumber,

@@ -1,0 +1,6 @@
+[build]
+  command = "npm run frontend:install && npm run frontend:build"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "22"

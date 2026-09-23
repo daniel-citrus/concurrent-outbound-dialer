@@ -1,24 +1,27 @@
 import Fastify from "fastify";
 import pino from "pino";
 import type { Env } from "./config/env.js";
-import { loadEnv } from "./config/env.js";
-import { createPool, type DbPool } from "./database/pool.js";
+import { loadEnv, resolveSupabaseCredentials } from "./config/env.js";
+import { createDialerSupabase, type DialerSupabase } from "./database/supabase.js";
+import { createInMemoryDialerSupabase } from "./database/in-memory-supabase.js";
 import { MockCallAutoSimulator } from "./providers/mock-call-auto-simulator.js";
 import { MOCK_AUTO_SIMULATE_DEFAULTS } from "./providers/mock-call-auto-simulator.js";
 import { MockVoiceProvider } from "./providers/mock-voice-provider.js";
 import type { VoiceProvider } from "./providers/voice-provider.js";
+import { MockProspectProvider } from "./providers/mock-prospect-provider.js";
+import type { ProspectProvider } from "./providers/prospect-provider.js";
 import { InMemorySessionManager } from "./controllers/session-manager.js";
-import { SessionOrchestrator } from "./services/session-orchestrator.js";
 import { CallCanceler } from "./services/call-canceler.js";
 import { WinnerSelector } from "./services/winner-selector.js";
 import { CallStatusProcessor } from "./services/call-status-processor.js";
+import { CallLaunchService } from "./services/call-launch.js";
 import { SessionService } from "./services/session-service.js";
 import { RecoveryService } from "./services/recovery-service.js";
 import { healthRoutes } from "./routes/health.routes.js";
 import { sessionRoutes } from "./routes/sessions.routes.js";
 import { callRoutes } from "./routes/calls.routes.js";
 import { mockRoutes } from "./routes/mock.routes.js";
-import { nebulaRoutes } from "./routes/nebula.routes.js";
+import { prospectsRoutes } from "./routes/prospects.routes.js";
 import type { AppServices } from "./types/app.js";
 import {
   registerErrorHandler,
@@ -28,8 +31,9 @@ import {
 
 export type BuildAppOptions = {
   env?: Env;
-  db?: DbPool;
+  db?: DialerSupabase;
   voiceProvider?: VoiceProvider;
+  prospectProvider?: ProspectProvider;
   logger?: pino.Logger;
   runRecovery?: boolean;
 };
@@ -45,6 +49,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
           "req.headers.authorization",
           "DATABASE_URL",
           "env.DATABASE_URL",
+          "SUPABASE_SERVICE_ROLE_KEY",
+          "env.SUPABASE_SERVICE_ROLE_KEY",
+          "NEBULA_SUPABASE_SERVICE_ROLE_KEY",
+          "env.NEBULA_SUPABASE_SERVICE_ROLE_KEY",
           "SERVICE_API_KEY",
           "env.SERVICE_API_KEY",
         ],
@@ -56,8 +64,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
           : undefined,
     });
 
-  const ownsDb = !options.db;
-  const db = options.db ?? createPool(env.DATABASE_URL);
+  const db = options.db ?? (await resolveDataStore(env, logger));
+  const prospectProvider = options.prospectProvider ?? new MockProspectProvider();
 
   const autoSimulator = env.MOCK_AUTO_SIMULATE
     ? new MockCallAutoSimulator({
@@ -100,7 +108,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
 
   const sessionManager = new InMemorySessionManager(db, logger);
-  const orchestrator = new SessionOrchestrator(db, env, voiceProvider, sessionManager, logger);
   const callCanceler = new CallCanceler(db, voiceProvider, sessionManager, logger);
   const winnerSelector = new WinnerSelector(db, sessionManager, callCanceler, logger);
   const callStatusProcessor = new CallStatusProcessor(
@@ -109,30 +116,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
     winnerSelector,
     logger,
   );
-  callStatusProcessor.setOrchestrator(orchestrator);
+  const callLaunch = new CallLaunchService(db, sessionManager, logger);
 
-  const sessionService = new SessionService(
-    db,
-    sessionManager,
-    orchestrator,
-    callCanceler,
-    logger,
-  );
+  const sessionService = new SessionService(db, sessionManager, callCanceler, logger);
   callStatusProcessor.setSessionService(sessionService);
 
   const activeAutoSimulator =
     voiceProvider instanceof MockVoiceProvider
       ? voiceProvider.getAutoSimulator()
       : autoSimulator;
-  activeAutoSimulator?.setEmitter((callAttemptId, status) =>
-    callStatusProcessor.processStatus(callAttemptId, status),
-  );
+  activeAutoSimulator?.setEmitter(async (callAttemptId, status) => {
+    await callStatusProcessor.processStatus(callAttemptId, status);
+  });
 
   const recoveryService = new RecoveryService(
     db,
     env,
     sessionManager,
-    orchestrator,
     callCanceler,
     sessionService,
     logger,
@@ -144,8 +144,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     voiceProvider,
     mockVoiceProvider:
       voiceProvider instanceof MockVoiceProvider ? voiceProvider : mockVoiceProvider,
+    prospectProvider,
     sessionManager,
-    orchestrator,
+    callLaunch,
     callStatusProcessor,
     callCanceler,
     winnerSelector,
@@ -172,7 +173,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(sessionRoutes);
   await app.register(callRoutes);
   await app.register(mockRoutes);
-  await app.register(nebulaRoutes);
+  await app.register(prospectsRoutes);
 
   if (options.runRecovery !== false) {
     app.addHook("onReady", async () => {
@@ -182,9 +183,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.addHook("onClose", async () => {
     activeAutoSimulator?.stopAll();
-    if (ownsDb) {
-      await db.end();
-    }
   });
 
   return app;
@@ -192,4 +190,50 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
 function cryptoRandomId(): string {
   return globalThis.crypto.randomUUID();
+}
+
+const SUPABASE_PROBE_TIMEOUT_MS = 3000;
+
+/**
+ * Resolve the dialer's data store: real Supabase when configured and
+ * reachable, otherwise an in-memory store seeded from sample/mock data so
+ * `npm run dev` works with zero external setup.
+ */
+async function resolveDataStore(env: Env, logger: pino.Logger): Promise<DialerSupabase> {
+  let creds: { url: string; serviceRoleKey: string };
+  try {
+    creds = resolveSupabaseCredentials(env);
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Supabase not configured — using in-memory mock data store",
+    );
+    return createInMemoryDialerSupabase();
+  }
+
+  const client = createDialerSupabase(creds.url, creds.serviceRoleKey);
+  if (await isSupabaseReachable(client)) {
+    return client;
+  }
+
+  logger.warn(
+    "Failed to reach Supabase — using in-memory mock data store",
+  );
+  return createInMemoryDialerSupabase();
+}
+
+async function isSupabaseReachable(client: DialerSupabase): Promise<boolean> {
+  try {
+    const probe = client.from("dialing_sessions").select("id").limit(1);
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Supabase reachability probe timed out")),
+        SUPABASE_PROBE_TIMEOUT_MS,
+      );
+    });
+    const { error } = await Promise.race([probe, timeout]);
+    return !error;
+  } catch {
+    return false;
+  }
 }

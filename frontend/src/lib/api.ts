@@ -1,3 +1,6 @@
+import * as backend from "./mock-backend/store";
+import { MockBackendError } from "./mock-backend/store";
+import * as prospects from "./mock-backend/prospects";
 import type {
   CallAttempt,
   CallAttemptStatus,
@@ -5,14 +8,21 @@ import type {
   CreateSessionResponse,
   DialingContact,
   DialingSession,
-  NebulaUsersResponse,
-  NebulaProspectListContactsResponse,
-  NebulaProspectListsResponse,
+  ProspectAgentsResponse,
+  ProspectListContactsResponse,
+  ProspectListsResponse,
   SessionStatusSnapshot,
   SessionRuntimeSnapshot,
   MockAutoSimulateConfig,
   MockAutoSimulateState,
 } from "./types";
+
+/**
+ * This app runs standalone in the browser — there is no server. Every
+ * `dialerApi` method below is backed by an in-memory store
+ * (./mock-backend/store.ts) instead of a `fetch` call, so the whole
+ * visualizer works from a static deploy with zero backend.
+ */
 
 export class ApiError extends Error {
   readonly status: number;
@@ -26,142 +36,146 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (init?.body != null && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers,
-  });
-
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    let code: string | undefined;
-    try {
-      const body = (await response.json()) as {
-        error?: { message?: string; code?: string };
-      };
-      if (body.error?.message) message = body.error.message;
-      code = body.error?.code;
-    } catch {
-      // ignore
+async function run<T>(fn: () => T): Promise<T> {
+  try {
+    return fn();
+  } catch (error) {
+    if (error instanceof MockBackendError) {
+      throw new ApiError(error.status, error.message, error.code);
     }
-    throw new ApiError(response.status, message, code);
+    throw error;
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
 }
 
 export const dialerApi = {
   getHealth(): Promise<{ status: string; voiceProvider?: string; database?: string }> {
-    return request("/health");
+    return Promise.resolve({ status: "ok", voiceProvider: "mock-browser", database: "in-memory" });
   },
 
   getMockAutoSimulate(): Promise<MockAutoSimulateState> {
-    return request("/mock/auto-simulate");
+    throw new ApiError(404, "Auto-simulate is configured client-side in this build.", "NOT_FOUND");
   },
 
   setMockAutoSimulate(
-    patch: { enabled?: boolean; reset?: boolean } & Partial<MockAutoSimulateConfig>,
+    _patch: { enabled?: boolean; reset?: boolean } & Partial<MockAutoSimulateConfig>,
   ): Promise<MockAutoSimulateState> {
-    return request("/mock/auto-simulate", {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
+    throw new ApiError(404, "Auto-simulate is configured client-side in this build.", "NOT_FOUND");
   },
 
-  getNebulaUsers(): Promise<NebulaUsersResponse> {
-    return request("/nebula/users");
+  getProspectAgents(): Promise<ProspectAgentsResponse> {
+    return run(() => ({ agents: prospects.listProspectAgents() }));
   },
 
-  getAgentProspectLists(agentId: string): Promise<NebulaProspectListsResponse> {
-    return request(`/nebula/agents/${encodeURIComponent(agentId)}/prospect-lists`);
+  getAgentProspectLists(agentId: string): Promise<ProspectListsResponse> {
+    return run(() => ({ lists: prospects.listProspectListsForAgent(agentId) }));
   },
 
-  getProspectListContacts(listId: string): Promise<NebulaProspectListContactsResponse> {
-    return request(`/nebula/prospect-lists/${encodeURIComponent(listId)}/contacts`);
+  getProspectListContacts(listId: string): Promise<ProspectListContactsResponse> {
+    return run(() => prospects.listProspectListContacts(listId));
   },
 
   createSession(input: CreateSessionInput): Promise<CreateSessionResponse> {
-    return request("/sessions", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
+    return run(() => backend.createSession(input));
   },
 
   getSession(sessionId: string): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}`);
+    return run(() => backend.getSession(sessionId));
   },
 
   getStatus(
     sessionId: string,
     afterVersion?: number,
   ): Promise<SessionStatusSnapshot | undefined> {
-    const q =
-      afterVersion !== undefined ? `?afterVersion=${afterVersion}` : "";
-    return request(`/sessions/${sessionId}/status${q}`);
+    return run(() => backend.getStatusSnapshot(sessionId, afterVersion));
   },
 
   getRuntime(sessionId: string): Promise<SessionRuntimeSnapshot> {
-    return request(`/sessions/${sessionId}/runtime`);
+    return run(() => backend.getRuntimeSnapshot(sessionId));
   },
 
   getContacts(
     sessionId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<DialingContact[]> {
-    const params = new URLSearchParams();
-    if (options?.limit !== undefined) params.set("limit", String(options.limit));
-    if (options?.offset !== undefined) params.set("offset", String(options.offset));
-    const q = params.size > 0 ? `?${params}` : "";
-    return request(`/sessions/${sessionId}/contacts${q}`);
+    return run(() => backend.getContacts(sessionId, options));
   },
 
   getCalls(
     sessionId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<CallAttempt[]> {
-    const params = new URLSearchParams();
-    if (options?.limit !== undefined) params.set("limit", String(options.limit));
-    if (options?.offset !== undefined) params.set("offset", String(options.offset));
-    const q = params.size > 0 ? `?${params}` : "";
-    return request(`/sessions/${sessionId}/calls${q}`);
+    return run(() => backend.getCalls(sessionId, options));
   },
 
   start(sessionId: string): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}/start`, { method: "POST" });
+    return run(() => backend.start(sessionId));
   },
 
   setAutoContinue(sessionId: string, autoContinue: boolean): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}/auto-continue`, {
-      method: "PATCH",
-      body: JSON.stringify({ autoContinue }),
-    });
+    return run(() => backend.setAutoContinue(sessionId, autoContinue));
   },
 
   pause(sessionId: string): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}/pause`, { method: "POST" });
+    return run(() => backend.pause(sessionId));
   },
 
   resume(sessionId: string): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}/resume`, { method: "POST" });
+    return run(() => backend.resume(sessionId));
   },
 
   stop(sessionId: string): Promise<DialingSession> {
-    return request(`/sessions/${sessionId}/stop`, { method: "POST" });
+    return run(() => backend.stop(sessionId));
+  },
+
+  claim(
+    sessionId: string,
+    limit: number,
+  ): Promise<{
+    claims: Array<{
+      contact: DialingContact;
+      callAttempt: CallAttempt;
+    }>;
+  }> {
+    return run(() => ({ claims: backend.claim(sessionId, limit) }));
+  },
+
+  getReconcileHint(sessionId: string): Promise<{
+    sessionId: string;
+    sessionStatus: string;
+    concurrencyLimit: number;
+    persistedActiveCount: number;
+    queuedContactCount: number;
+    claimedContactCount: number;
+  }> {
+    return run(() => backend.getReconcileHint(sessionId));
+  },
+
+  markCallCreated(callAttemptId: string, providerCallId: string): Promise<CallAttempt> {
+    return run(() => backend.markCallCreated(callAttemptId, providerCallId));
+  },
+
+  markCallCreationFailed(
+    callAttemptId: string,
+    error: { errorCode?: string; errorMessage?: string },
+  ): Promise<CallAttempt> {
+    return run(() => backend.markCallCreationFailed(callAttemptId, error));
+  },
+
+  reportStatus(
+    callAttemptId: string,
+    status: CallAttemptStatus,
+  ): Promise<
+    CallAttempt & {
+      sessionId: string;
+      triggeredReconcile: boolean;
+      winnerSelected: boolean;
+      winningCallAttemptId: string | null;
+    }
+  > {
+    return run(() => backend.reportStatus(callAttemptId, status));
   },
 
   simulate(callAttemptId: string, status: CallAttemptStatus): Promise<CallAttempt> {
-    return request(`/calls/${callAttemptId}/simulate`, {
-      method: "POST",
-      body: JSON.stringify({ status }),
-    });
+    return run(() => backend.reportStatus(callAttemptId, status));
   },
 };

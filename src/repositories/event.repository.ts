@@ -1,39 +1,33 @@
-import type { DbClient, DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
+import { throwIfError } from "../database/supabase.js";
 import type { DialEvent } from "../domain/event.js";
 import type { DialEventType } from "../domain/statuses.js";
 import { mapEvent, type EventRow } from "./mappers.js";
 
-type Queryable = DbPool | DbClient;
-
 export class EventRepository {
-  constructor(private readonly db: Queryable) {}
+  constructor(private readonly sb: DialerSupabase) {}
 
-  async append(
-    input: {
-      sessionId: string;
-      callAttemptId?: string | null;
-      eventType: DialEventType;
-      payload?: Record<string, unknown>;
-    },
-    client?: DbClient,
-  ): Promise<DialEvent> {
-    const db = client ?? this.db;
-    const result = await db.query<EventRow>(
-      `INSERT INTO dial_events (session_id, call_attempt_id, event_type, payload)
-       VALUES ($1, $2, $3, $4::jsonb)
-       RETURNING *`,
-      [
-        input.sessionId,
-        input.callAttemptId ?? null,
-        input.eventType,
-        JSON.stringify(input.payload ?? {}),
-      ],
-    );
-    const row = result.rows[0];
-    if (!row) {
+  async append(input: {
+    sessionId: string;
+    callAttemptId?: string | null;
+    eventType: DialEventType;
+    payload?: Record<string, unknown>;
+  }): Promise<DialEvent> {
+    const { data, error } = await this.sb
+      .from("dial_events")
+      .insert({
+        session_id: input.sessionId,
+        call_attempt_id: input.callAttemptId ?? null,
+        event_type: input.eventType,
+        payload: input.payload ?? {},
+      })
+      .select("*")
+      .single();
+    throwIfError(error, "append dial event");
+    if (!data) {
       throw new Error("Failed to append dial event");
     }
-    return mapEvent(row);
+    return mapEvent(data as EventRow);
   }
 
   async listBySession(
@@ -42,13 +36,13 @@ export class EventRepository {
   ): Promise<DialEvent[]> {
     const limit = options.limit ?? 100;
     const offset = options.offset ?? 0;
-    const result = await this.db.query<EventRow>(
-      `SELECT * FROM dial_events
-       WHERE session_id = $1
-       ORDER BY created_at
-       LIMIT $2 OFFSET $3`,
-      [sessionId, limit, offset],
-    );
-    return result.rows.map(mapEvent);
+    const { data, error } = await this.sb
+      .from("dial_events")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + limit - 1);
+    throwIfError(error, "list dial events");
+    return (data ?? []).map((row) => mapEvent(row as EventRow));
   }
 }

@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { DialingSession } from "../domain/session.js";
 import { isTerminalSessionStatus } from "../domain/statuses.js";
 import { sessionNotFound } from "../domain/errors.js";
@@ -22,7 +22,7 @@ export class InMemorySessionManager implements SessionManager {
   private readonly initializing = new Map<string, Promise<SessionController>>();
 
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly logger: Logger,
   ) {}
 

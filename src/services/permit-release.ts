@@ -1,4 +1,4 @@
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { SessionController } from "../controllers/session-controller.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 
@@ -8,7 +8,7 @@ import { CallAttemptRepository } from "../repositories/call-attempt.repository.j
  * row was already marked.
  */
 export async function releasePermitDurable(
-  db: DbPool,
+  db: DialerSupabase,
   controller: SessionController | undefined | null,
   callAttemptId: string,
 ): Promise<void> {

@@ -1,58 +1,67 @@
-import type { DbClient, DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
+import { isUniqueViolation, throwIfError } from "../database/supabase.js";
+import type { DialingContact } from "../domain/contact.js";
 import type { DialingSession } from "../domain/session.js";
 import type { SessionStatus } from "../domain/statuses.js";
 import { databaseConflict, duplicateActiveClientSession } from "../domain/errors.js";
-import { mapSession, type SessionRow } from "./mappers.js";
-
-type Queryable = DbPool | DbClient;
+import { mapContact, mapSession, type ContactRow, type SessionRow } from "./mappers.js";
 
 export class SessionRepository {
-  constructor(private readonly db: Queryable) {}
+  constructor(private readonly sb: DialerSupabase) {}
 
   async findById(sessionId: string): Promise<DialingSession | null> {
-    const result = await this.db.query<SessionRow>(
-      `SELECT * FROM dialing_sessions WHERE id = $1`,
-      [sessionId],
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const { data, error } = await this.sb
+      .from("dialing_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .maybeSingle();
+    throwIfError(error, "find session");
+    return data ? mapSession(data as SessionRow) : null;
   }
 
   async listByStatuses(statuses: readonly SessionStatus[]): Promise<DialingSession[]> {
-    const result = await this.db.query<SessionRow>(
-      `SELECT * FROM dialing_sessions WHERE status = ANY($1::text[]) ORDER BY created_at`,
-      [statuses],
-    );
-    return result.rows.map(mapSession);
+    const { data, error } = await this.sb
+      .from("dialing_sessions")
+      .select("*")
+      .in("status", [...statuses])
+      .order("created_at", { ascending: true });
+    throwIfError(error, "list sessions by status");
+    return (data ?? []).map((row) => mapSession(row as SessionRow));
   }
 
-  async create(
-    client: DbClient,
-    input: {
-      clientId: string;
-      agentId: string;
-      concurrencyLimit: number;
-      autoContinue?: boolean;
-    },
-  ): Promise<DialingSession> {
-    try {
-      const result = await client.query<SessionRow>(
-        `INSERT INTO dialing_sessions (client_id, agent_id, status, concurrency_limit, auto_continue)
-         VALUES ($1, $2, 'created', $3, $4)
-         RETURNING *`,
-        [input.clientId, input.agentId, input.concurrencyLimit, input.autoContinue ?? true],
-      );
-      const row = result.rows[0];
-      if (!row) {
-        throw new Error("Failed to create dialing session");
-      }
-      return mapSession(row);
-    } catch (error) {
+  async create(input: {
+    clientId: string;
+    agentId: string;
+    concurrencyLimit: number;
+    autoContinue?: boolean;
+    contacts: Array<{ externalContactId: string; phoneNumber: string }>;
+  }): Promise<{ session: DialingSession; contacts: DialingContact[] }> {
+    const { data, error } = await this.sb.rpc("dialer_create_session", {
+      p_client_id: input.clientId,
+      p_agent_id: input.agentId,
+      p_concurrency_limit: input.concurrencyLimit,
+      p_auto_continue: input.autoContinue ?? true,
+      p_contacts: input.contacts.map((c) => ({
+        externalContactId: c.externalContactId,
+        phoneNumber: c.phoneNumber,
+      })),
+    });
+
+    if (error) {
       if (isUniqueViolation(error)) {
         throw duplicateActiveClientSession(input.clientId);
       }
-      throw error;
+      throwIfError(error, "create session");
     }
+
+    const payload = data as {
+      session: SessionRow;
+      contacts: ContactRow[];
+    };
+    return {
+      session: mapSession(payload.session),
+      contacts: payload.contacts.map(mapContact),
+    };
   }
 
   async updateStatus(
@@ -67,77 +76,74 @@ export class SessionRepository {
       expectedStatuses?: readonly SessionStatus[];
     } = {},
   ): Promise<DialingSession | null> {
-    const sets: string[] = ["status = $2", "state_version = state_version + 1", "updated_at = NOW()"];
-    const params: unknown[] = [sessionId, status];
-    let idx = 3;
+    const current = await this.findById(sessionId);
+    if (!current) return null;
+    if (
+      patches.expectedStatuses &&
+      patches.expectedStatuses.length > 0 &&
+      !patches.expectedStatuses.includes(current.status)
+    ) {
+      return null;
+    }
 
+    const update: Record<string, unknown> = {
+      status,
+      state_version: current.stateVersion + 1,
+      updated_at: new Date().toISOString(),
+    };
     if (patches.startedAt !== undefined) {
-      sets.push(`started_at = $${idx++}`);
-      params.push(patches.startedAt);
+      update.started_at = patches.startedAt?.toISOString() ?? null;
     }
     if (patches.pausedAt !== undefined) {
-      sets.push(`paused_at = $${idx++}`);
-      params.push(patches.pausedAt);
+      update.paused_at = patches.pausedAt?.toISOString() ?? null;
     }
     if (patches.stoppedAt !== undefined) {
-      sets.push(`stopped_at = $${idx++}`);
-      params.push(patches.stoppedAt);
+      update.stopped_at = patches.stoppedAt?.toISOString() ?? null;
     }
     if (patches.completedAt !== undefined) {
-      sets.push(`completed_at = $${idx++}`);
-      params.push(patches.completedAt);
+      update.completed_at = patches.completedAt?.toISOString() ?? null;
     }
     if (patches.winningCallAttemptId !== undefined) {
-      sets.push(`winning_call_attempt_id = $${idx++}`);
-      params.push(patches.winningCallAttemptId);
+      update.winning_call_attempt_id = patches.winningCallAttemptId;
     }
 
-    let where = `id = $1`;
+    let query = this.sb.from("dialing_sessions").update(update).eq("id", sessionId);
     if (patches.expectedStatuses && patches.expectedStatuses.length > 0) {
-      where += ` AND status = ANY($${idx++}::text[])`;
-      params.push(patches.expectedStatuses);
+      query = query.in("status", [...patches.expectedStatuses]);
     }
 
-    const result = await this.db.query<SessionRow>(
-      `UPDATE dialing_sessions SET ${sets.join(", ")} WHERE ${where} RETURNING *`,
-      params,
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const { data, error } = await query.select("*").maybeSingle();
+    throwIfError(error, "update session status");
+    return data ? mapSession(data as SessionRow) : null;
   }
 
   async trySelectWinner(
     sessionId: string,
     callAttemptId: string,
   ): Promise<DialingSession | null> {
-    const result = await this.db.query<SessionRow>(
-      `UPDATE dialing_sessions
-       SET
-         status = 'winner_selected',
-         winning_call_attempt_id = $1,
-         paused_at = NOW(),
-         state_version = state_version + 1,
-         updated_at = NOW()
-       WHERE id = $2
-         AND status = 'running'
-         AND winning_call_attempt_id IS NULL
-       RETURNING *`,
-      [callAttemptId, sessionId],
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const { data, error } = await this.sb.rpc("dialer_try_select_winner", {
+      p_session_id: sessionId,
+      p_call_attempt_id: callAttemptId,
+    });
+    throwIfError(error, "try select winner");
+    if (!data) return null;
+    return mapSession(data as SessionRow);
   }
 
   async bumpStateVersion(sessionId: string): Promise<DialingSession | null> {
-    const result = await this.db.query<SessionRow>(
-      `UPDATE dialing_sessions
-       SET state_version = state_version + 1, updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [sessionId],
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const current = await this.findById(sessionId);
+    if (!current) return null;
+    const { data, error } = await this.sb
+      .from("dialing_sessions")
+      .update({
+        state_version: current.stateVersion + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId)
+      .select("*")
+      .maybeSingle();
+    throwIfError(error, "bump state version");
+    return data ? mapSession(data as SessionRow) : null;
   }
 
   async markCompleted(sessionId: string): Promise<DialingSession | null> {
@@ -148,37 +154,32 @@ export class SessionRepository {
   }
 
   async continueFromWinner(sessionId: string): Promise<DialingSession | null> {
-    const result = await this.db.query<SessionRow>(
-      `UPDATE dialing_sessions
-       SET
-         status = 'running',
-         winning_call_attempt_id = NULL,
-         paused_at = NULL,
-         state_version = state_version + 1,
-         updated_at = NOW()
-       WHERE id = $1
-         AND status = 'winner_selected'
-         AND winning_call_attempt_id IS NOT NULL
-       RETURNING *`,
-      [sessionId],
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const { data, error } = await this.sb.rpc("dialer_continue_from_winner", {
+      p_session_id: sessionId,
+    });
+    throwIfError(error, "continue from winner");
+    if (!data) return null;
+    return mapSession(data as SessionRow);
   }
 
   async setAutoContinue(
     sessionId: string,
     autoContinue: boolean,
   ): Promise<DialingSession | null> {
-    const result = await this.db.query<SessionRow>(
-      `UPDATE dialing_sessions
-       SET auto_continue = $2, state_version = state_version + 1, updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [sessionId, autoContinue],
-    );
-    const row = result.rows[0];
-    return row ? mapSession(row) : null;
+    const current = await this.findById(sessionId);
+    if (!current) return null;
+    const { data, error } = await this.sb
+      .from("dialing_sessions")
+      .update({
+        auto_continue: autoContinue,
+        state_version: current.stateVersion + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId)
+      .select("*")
+      .maybeSingle();
+    throwIfError(error, "set auto continue");
+    return data ? mapSession(data as SessionRow) : null;
   }
 
   async markFailed(sessionId: string): Promise<DialingSession | null> {
@@ -196,13 +197,4 @@ export class SessionRepository {
     }
     return session;
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: string }).code === "23505"
-  );
 }

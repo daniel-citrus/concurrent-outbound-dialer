@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
 import type { DialingSession } from "../domain/session.js";
 import type { SessionManager } from "../controllers/session-manager.js";
@@ -16,7 +16,7 @@ export type WinnerSelectionResult =
 
 export class WinnerSelector {
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly sessionManager: SessionManager,
     private readonly callCanceler: CallCanceler,
     private readonly logger: Logger,

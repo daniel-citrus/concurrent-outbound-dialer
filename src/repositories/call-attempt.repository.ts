@@ -1,21 +1,21 @@
-import type { DbClient, DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
+import { throwIfError } from "../database/supabase.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
 import type { CallAttemptStatus } from "../domain/statuses.js";
 import { ACTIVE_CALL_ATTEMPT_STATUSES } from "../domain/statuses.js";
 import { mapCallAttempt, type CallAttemptRow } from "./mappers.js";
 
-type Queryable = DbPool | DbClient;
-
 export class CallAttemptRepository {
-  constructor(private readonly db: Queryable) {}
+  constructor(private readonly sb: DialerSupabase) {}
 
   async findById(callAttemptId: string): Promise<CallAttempt | null> {
-    const result = await this.db.query<CallAttemptRow>(
-      `SELECT * FROM call_attempts WHERE id = $1`,
-      [callAttemptId],
-    );
-    const row = result.rows[0];
-    return row ? mapCallAttempt(row) : null;
+    const { data, error } = await this.sb
+      .from("call_attempts")
+      .select("*")
+      .eq("id", callAttemptId)
+      .maybeSingle();
+    throwIfError(error, "find call attempt");
+    return data ? mapCallAttempt(data as CallAttemptRow) : null;
   }
 
   async listBySession(
@@ -24,36 +24,35 @@ export class CallAttemptRepository {
   ): Promise<CallAttempt[]> {
     const limit = options.limit ?? 10_000;
     const offset = options.offset ?? 0;
-    const result = await this.db.query<CallAttemptRow>(
-      `SELECT * FROM call_attempts
-       WHERE session_id = $1
-       ORDER BY created_at
-       LIMIT $2 OFFSET $3`,
-      [sessionId, limit, offset],
-    );
-    return result.rows.map(mapCallAttempt);
+    const { data, error } = await this.sb
+      .from("call_attempts")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + limit - 1);
+    throwIfError(error, "list call attempts");
+    return (data ?? []).map((row) => mapCallAttempt(row as CallAttemptRow));
   }
 
   async listActiveBySession(sessionId: string): Promise<CallAttempt[]> {
-    const result = await this.db.query<CallAttemptRow>(
-      `SELECT * FROM call_attempts
-       WHERE session_id = $1
-         AND status = ANY($2::text[])
-       ORDER BY created_at`,
-      [sessionId, ACTIVE_CALL_ATTEMPT_STATUSES],
-    );
-    return result.rows.map(mapCallAttempt);
+    const { data, error } = await this.sb
+      .from("call_attempts")
+      .select("*")
+      .eq("session_id", sessionId)
+      .in("status", [...ACTIVE_CALL_ATTEMPT_STATUSES])
+      .order("created_at", { ascending: true });
+    throwIfError(error, "list active call attempts");
+    return (data ?? []).map((row) => mapCallAttempt(row as CallAttemptRow));
   }
 
   async countActiveBySession(sessionId: string): Promise<number> {
-    const result = await this.db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-       FROM call_attempts
-       WHERE session_id = $1
-         AND status = ANY($2::text[])`,
-      [sessionId, ACTIVE_CALL_ATTEMPT_STATUSES],
-    );
-    return Number(result.rows[0]?.count ?? 0);
+    const { count, error } = await this.sb
+      .from("call_attempts")
+      .select("*", { count: "exact", head: true })
+      .eq("session_id", sessionId)
+      .in("status", [...ACTIVE_CALL_ATTEMPT_STATUSES]);
+    throwIfError(error, "count active call attempts");
+    return count ?? 0;
   }
 
   async updateStatus(
@@ -70,51 +69,40 @@ export class CallAttemptRepository {
       expectedStatuses?: readonly CallAttemptStatus[];
     } = {},
   ): Promise<CallAttempt | null> {
-    const sets = ["status = $2", "updated_at = NOW()"];
-    const params: unknown[] = [callAttemptId, status];
-    let idx = 3;
-
+    const update: Record<string, unknown> = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
     if (patches.providerCallId !== undefined) {
-      sets.push(`provider_call_id = $${idx++}`);
-      params.push(patches.providerCallId);
+      update.provider_call_id = patches.providerCallId;
     }
     if (patches.isWinner !== undefined) {
-      sets.push(`is_winner = $${idx++}`);
-      params.push(patches.isWinner);
+      update.is_winner = patches.isWinner;
     }
     if (patches.permitReleased !== undefined) {
-      sets.push(`permit_released = $${idx++}`);
-      params.push(patches.permitReleased);
+      update.permit_released = patches.permitReleased;
     }
     if (patches.errorCode !== undefined) {
-      sets.push(`error_code = $${idx++}`);
-      params.push(patches.errorCode);
+      update.error_code = patches.errorCode;
     }
     if (patches.errorMessage !== undefined) {
-      sets.push(`error_message = $${idx++}`);
-      params.push(patches.errorMessage);
+      update.error_message = patches.errorMessage;
     }
     if (patches.answeredAt !== undefined) {
-      sets.push(`answered_at = $${idx++}`);
-      params.push(patches.answeredAt);
+      update.answered_at = patches.answeredAt?.toISOString() ?? null;
     }
     if (patches.completedAt !== undefined) {
-      sets.push(`completed_at = $${idx++}`);
-      params.push(patches.completedAt);
+      update.completed_at = patches.completedAt?.toISOString() ?? null;
     }
 
-    let where = `id = $1`;
+    let query = this.sb.from("call_attempts").update(update).eq("id", callAttemptId);
     if (patches.expectedStatuses && patches.expectedStatuses.length > 0) {
-      where += ` AND status = ANY($${idx++}::text[])`;
-      params.push(patches.expectedStatuses);
+      query = query.in("status", [...patches.expectedStatuses]);
     }
 
-    const result = await this.db.query<CallAttemptRow>(
-      `UPDATE call_attempts SET ${sets.join(", ")} WHERE ${where} RETURNING *`,
-      params,
-    );
-    const row = result.rows[0];
-    return row ? mapCallAttempt(row) : null;
+    const { data, error } = await query.select("*").maybeSingle();
+    throwIfError(error, "update call attempt status");
+    return data ? mapCallAttempt(data as CallAttemptRow) : null;
   }
 
   async markWinner(callAttemptId: string): Promise<CallAttempt | null> {
@@ -125,24 +113,28 @@ export class CallAttemptRepository {
   }
 
   async markPermitReleased(callAttemptId: string): Promise<CallAttempt | null> {
-    const result = await this.db.query<CallAttemptRow>(
-      `UPDATE call_attempts
-       SET permit_released = TRUE, updated_at = NOW()
-       WHERE id = $1 AND permit_released = FALSE
-       RETURNING *`,
-      [callAttemptId],
-    );
-    const row = result.rows[0];
-    return row ? mapCallAttempt(row) : null;
+    const { data, error } = await this.sb
+      .from("call_attempts")
+      .update({
+        permit_released: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", callAttemptId)
+      .eq("permit_released", false)
+      .select("*")
+      .maybeSingle();
+    throwIfError(error, "mark permit released");
+    return data ? mapCallAttempt(data as CallAttemptRow) : null;
   }
 
   async listStaleCreating(timeoutSeconds: number): Promise<CallAttempt[]> {
-    const result = await this.db.query<CallAttemptRow>(
-      `SELECT * FROM call_attempts
-       WHERE status = 'creating'
-         AND created_at < NOW() - ($1::text || ' seconds')::interval`,
-      [String(timeoutSeconds)],
-    );
-    return result.rows.map(mapCallAttempt);
+    const cutoff = new Date(Date.now() - timeoutSeconds * 1000).toISOString();
+    const { data, error } = await this.sb
+      .from("call_attempts")
+      .select("*")
+      .eq("status", "creating")
+      .lt("created_at", cutoff);
+    throwIfError(error, "list stale creating attempts");
+    return (data ?? []).map((row) => mapCallAttempt(row as CallAttemptRow));
   }
 }

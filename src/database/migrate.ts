@@ -1,16 +1,27 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
 import { loadEnv } from "../config/env.js";
-
-const { Pool } = pg;
+import { createPool } from "./pool.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Apply SQL files in migrations/ using a direct Postgres connection.
+ * Requires DATABASE_URL (not used by the Fastify runtime).
+ *
+ * For hosted Supabase: paste migrations into the SQL editor, or:
+ *   DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-....pooler.supabase.com:5432/postgres npm run db:migrate
+ */
 export async function migrate(databaseUrl?: string): Promise<void> {
   const env = loadEnv();
-  const pool = new Pool({ connectionString: databaseUrl ?? env.DATABASE_URL });
+  const url = databaseUrl ?? env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is required for db:migrate (runtime API uses SUPABASE_URL + service role instead)",
+    );
+  }
+  const pool = createPool(url);
 
   try {
     await pool.query(`
@@ -34,7 +45,6 @@ export async function migrate(databaseUrl?: string): Promise<void> {
       const sql = await readFile(path.join(migrationsDir, file), "utf8");
       const client = await pool.connect();
       try {
-        // Migration files may include their own BEGIN/COMMIT.
         await client.query(sql);
         await client.query(`INSERT INTO schema_migrations (id) VALUES ($1)`, [file]);
       } finally {

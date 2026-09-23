@@ -1,37 +1,11 @@
-import type { DbClient, DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
+import { throwIfError } from "../database/supabase.js";
 import type { DialingContact } from "../domain/contact.js";
 import type { ContactStatus } from "../domain/statuses.js";
 import { mapContact, type ContactRow } from "./mappers.js";
 
-type Queryable = DbPool | DbClient;
-
 export class ContactRepository {
-  constructor(private readonly db: Queryable) {}
-
-  async insertMany(
-    client: DbClient,
-    sessionId: string,
-    contacts: Array<{ externalContactId: string; phoneNumber: string }>,
-  ): Promise<DialingContact[]> {
-    const created: DialingContact[] = [];
-    for (let i = 0; i < contacts.length; i++) {
-      const contact = contacts[i];
-      if (!contact) continue;
-      const result = await client.query<ContactRow>(
-        `INSERT INTO dialing_contacts (
-           session_id, external_contact_id, phone_number, position, status
-         ) VALUES ($1, $2, $3, $4, 'queued')
-         RETURNING *`,
-        [sessionId, contact.externalContactId, contact.phoneNumber, i],
-      );
-      const row = result.rows[0];
-      if (!row) {
-        throw new Error("Failed to insert contact");
-      }
-      created.push(mapContact(row));
-    }
-    return created;
-  }
+  constructor(private readonly sb: DialerSupabase) {}
 
   async listBySession(
     sessionId: string,
@@ -39,27 +13,26 @@ export class ContactRepository {
   ): Promise<DialingContact[]> {
     const limit = options.limit ?? 10_000;
     const offset = options.offset ?? 0;
-    const result = await this.db.query<ContactRow>(
-      `SELECT * FROM dialing_contacts
-       WHERE session_id = $1
-       ORDER BY position
-       LIMIT $2 OFFSET $3`,
-      [sessionId, limit, offset],
-    );
-    return result.rows.map(mapContact);
+    const { data, error } = await this.sb
+      .from("dialing_contacts")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("position", { ascending: true })
+      .range(offset, offset + limit - 1);
+    throwIfError(error, "list contacts");
+    return (data ?? []).map((row) => mapContact(row as ContactRow));
   }
 
   async countByStatus(sessionId: string): Promise<Record<string, number>> {
-    const result = await this.db.query<{ status: string; count: string }>(
-      `SELECT status, COUNT(*)::text AS count
-       FROM dialing_contacts
-       WHERE session_id = $1
-       GROUP BY status`,
-      [sessionId],
-    );
+    const { data, error } = await this.sb
+      .from("dialing_contacts")
+      .select("status")
+      .eq("session_id", sessionId);
+    throwIfError(error, "count contacts by status");
     const counts: Record<string, number> = {};
-    for (const row of result.rows) {
-      counts[row.status] = Number(row.count);
+    for (const row of data ?? []) {
+      const status = (row as { status: string }).status;
+      counts[status] = (counts[status] ?? 0) + 1;
     }
     return counts;
   }
@@ -69,31 +42,33 @@ export class ContactRepository {
     status: ContactStatus,
     patches: { claimedAt?: Date | null; completedAt?: Date | null } = {},
   ): Promise<DialingContact | null> {
-    const sets = ["status = $2", "updated_at = NOW()"];
-    const params: unknown[] = [contactId, status];
-    let idx = 3;
+    const update: Record<string, unknown> = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
     if (patches.claimedAt !== undefined) {
-      sets.push(`claimed_at = $${idx++}`);
-      params.push(patches.claimedAt);
+      update.claimed_at = patches.claimedAt?.toISOString() ?? null;
     }
     if (patches.completedAt !== undefined) {
-      sets.push(`completed_at = $${idx++}`);
-      params.push(patches.completedAt);
+      update.completed_at = patches.completedAt?.toISOString() ?? null;
     }
-    const result = await this.db.query<ContactRow>(
-      `UPDATE dialing_contacts SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
-      params,
-    );
-    const row = result.rows[0];
-    return row ? mapContact(row) : null;
+    const { data, error } = await this.sb
+      .from("dialing_contacts")
+      .update(update)
+      .eq("id", contactId)
+      .select("*")
+      .maybeSingle();
+    throwIfError(error, "update contact status");
+    return data ? mapContact(data as ContactRow) : null;
   }
 
   async findById(contactId: string): Promise<DialingContact | null> {
-    const result = await this.db.query<ContactRow>(
-      `SELECT * FROM dialing_contacts WHERE id = $1`,
-      [contactId],
-    );
-    const row = result.rows[0];
-    return row ? mapContact(row) : null;
+    const { data, error } = await this.sb
+      .from("dialing_contacts")
+      .select("*")
+      .eq("id", contactId)
+      .maybeSingle();
+    throwIfError(error, "find contact");
+    return data ? mapContact(data as ContactRow) : null;
   }
 }

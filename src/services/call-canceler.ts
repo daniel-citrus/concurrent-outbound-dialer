@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { VoiceProvider } from "../providers/voice-provider.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import type { CallAttempt } from "../domain/call-attempt.js";
@@ -11,7 +11,7 @@ import { releasePermitDurable } from "./permit-release.js";
 
 export class CallCanceler {
   constructor(
-    private readonly db: DbPool,
+    private readonly db: DialerSupabase,
     private readonly voiceProvider: VoiceProvider,
     private readonly sessionManager: SessionManager,
     private readonly logger: Logger,

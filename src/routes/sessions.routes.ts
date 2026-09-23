@@ -5,6 +5,8 @@ import {
   serializeEvent,
   serializeSession,
 } from "../services/session-service.js";
+import { serializeReservedClaim } from "../services/call-launch.js";
+import { validationError } from "../domain/errors.js";
 
 export const sessionRoutes: FastifyPluginAsync = async (app) => {
   const svc = () => app.services.sessionService;
@@ -149,6 +151,28 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const session = await svc().stop(request.params.sessionId);
       return serializeSession(session);
+    },
+  );
+
+  app.post<{ Params: { sessionId: string }; Body: { limit?: number } }>(
+    "/sessions/:sessionId/claim",
+    async (request) => {
+      const limit = request.body?.limit;
+      if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0) {
+        throw validationError("limit must be a non-negative integer");
+      }
+      const claims = await app.services.callLaunch.claim(
+        request.params.sessionId,
+        limit,
+      );
+      return { claims: claims.map(serializeReservedClaim) };
+    },
+  );
+
+  app.get<{ Params: { sessionId: string } }>(
+    "/sessions/:sessionId/reconcile-hint",
+    async (request) => {
+      return app.services.callLaunch.getReconcileHint(request.params.sessionId);
     },
   );
 };

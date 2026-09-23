@@ -39,7 +39,7 @@
 			return;
 		}
 
-		// Outside developer mode, keep auto-simulate on when the backend supports it.
+		// Outside developer mode, keep auto-simulate on.
 		void (async () => {
 			await store.refreshAutoSimulate();
 
@@ -123,7 +123,7 @@
 					class:opacity-45={!store.autoSimulateAvailable}
 					title={store.autoSimulateAvailable
 						? "When off, use the simulate panel to drive call statuses"
-						: "Set MOCK_AUTO_SIMULATE=true on the API to enable"}
+						: "Auto-simulate unavailable"}
 				>
 					<Switch
 						id="auto-simulate"

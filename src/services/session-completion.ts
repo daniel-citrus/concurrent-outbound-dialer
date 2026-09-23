@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { DbPool } from "../database/pool.js";
+import type { DialerSupabase } from "../database/supabase.js";
 import type { SessionManager } from "../controllers/session-manager.js";
 import { CallAttemptRepository } from "../repositories/call-attempt.repository.js";
 import { ContactRepository } from "../repositories/contact.repository.js";
@@ -7,7 +7,7 @@ import { EventRepository } from "../repositories/event.repository.js";
 import { SessionRepository } from "../repositories/session.repository.js";
 
 export async function tryCompleteSessionIfExhausted(
-  db: DbPool,
+  db: DialerSupabase,
   sessionManager: SessionManager,
   sessionId: string,
 ): Promise<boolean> {
@@ -55,7 +55,7 @@ export type AutoContinueDialing = (
  * dialing when enabled.
  */
 export async function tryCompleteOrAutoContinue(
-  db: DbPool,
+  db: DialerSupabase,
   sessionManager: SessionManager,
   sessionId: string,
   options: {

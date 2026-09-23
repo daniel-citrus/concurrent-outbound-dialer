@@ -10,5 +10,6 @@ frontend/node_modules/
 frontend/dist/
 .cursor
 .agents
+supabase/.temp/
 # Local Remotion experiments — not part of the dialer service
 my-video/
